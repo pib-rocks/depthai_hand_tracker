@@ -34,12 +34,14 @@ UID_SERVO_BRICK_3 = '29F3' # Left Arm Joints (Elbow, Lower Arm, Shoulder Horizon
 # Brick 1 (Right Arm)
 SERVO_IDX_ELBOW_R = 8
 SERVO_IDX_LOWER_ARM_R = 7
-SERVO_IDX_UPPER_ARM_R = 9 # Renamed from SHOULDER_HORIZONTAL_R
+SERVO_IDX_UPPER_ARM_R = 9 # Controlled by hand tracking (horizontal position)
+SERVO_IDX_SHOULDER_HORIZONTAL_R = 9 # Used for initial positioning
 # Brick 2 (Shoulder Vertical)
 SERVO_IDX_SHOULDER_VERTICAL_L = 9
 SERVO_IDX_SHOULDER_VERTICAL_R = 1
 # Brick 3 (Left Arm + Fingers)
-SERVO_IDX_UPPER_ARM_L = 9 # Renamed from SHOULDER_HORIZONTAL_L (Upper Arm Rotation Left)
+SERVO_IDX_UPPER_ARM_L = 9 # Controlled by hand tracking (horizontal position)
+SERVO_IDX_SHOULDER_HORIZONTAL_L = 9 # Used for initial positioning
 SERVO_IDX_THUMB_L_OPPOSITION = 0
 SERVO_IDX_THUMB_L_PROXIMAL = 1
 SERVO_IDX_INDEX_L_PROXIMAL = 2
@@ -716,11 +718,11 @@ class HandTracker:
             set_servo(servoBrick3, SERVO_IDX_LOWER_ARM_L, 0)
             # Lower Arm Rotation Right
             set_servo(servoBrick1, SERVO_IDX_LOWER_ARM_R, 0)
-            # Upper Arm Left
-            set_servo(servoBrick3, SERVO_IDX_UPPER_ARM_L, 6000) # Use renamed constant
-            # Upper Arm Right
-            # Note: upper_arm_right is 0 here as it's calculated later based on hand landmarks
-            set_servo(servoBrick1, SERVO_IDX_UPPER_ARM_R, 0) # Use renamed constant, set to 0 initially
+            # Shoulder Horizontal Left (Initial Position)
+            set_servo(servoBrick3, SERVO_IDX_SHOULDER_HORIZONTAL_L, 6000) # Use SHOULDER_HORIZONTAL constant
+            # Shoulder Horizontal Right (Initial Position)
+            # Note: upper_arm_right is calculated later based on hand landmarks for active control
+            set_servo(servoBrick1, SERVO_IDX_SHOULDER_HORIZONTAL_R, 0) # Use SHOULDER_HORIZONTAL constant, set to 0 initially
 
         for i in range(len(res.get("lm_score",[]))):
             hand = self.extract_hand_data(res, i)
