@@ -743,13 +743,13 @@ class HandTracker:
                 shoulder_vertical_right = hand.landmarks[0][1] * 13 + 1500
             hands.append(hand)
             
-            norm_landmarks.append(hand.norm_landmarks)      #ziehe normierte landmark koordinaten aus hand; in Schleife appenden um Anzahl der Haende zu beruecksichtigen
+            norm_landmarks.append(hand.norm_landmarks)      # extract normalized landmark coordinates from hand; append in loop to account for the number of hands
             orientation = hand.handedness
        
 
         angle_array = []
-        if norm_landmarks:          #nur rechnen wenn Handkoordinaten verfuegbar
-            #initialisiere Matritzen fuer Winkel
+        if norm_landmarks:          # only calculate if hand coordinates are available
+            # initialize matrices for angles
             vec_thumb_low = []
             vec_thumb_high = []
             vec_thumb_low2 = []
@@ -769,42 +769,42 @@ class HandTracker:
             vec_ltl_high = []
             angle_ltl = []
 
-            #beruecksichtige Anzahl der Haende; Nummerierung der Landmarks stimmt mit Zeichnung aus Github ueberein; erste Dimension der Matrix norm_landmarks ist index der Hand (0 wenn keine Hand, 1 wenn eine Hand, 2 wenn 2 Haende, ...)
+            # consider the number of hands; numbering of landmarks matches the drawing from Github; the first dimension of the norm_landmarks matrix is the hand index (0 if no hand, 1 if one hand, 2 if two hands, ...)
             for i in range(0,len(norm_landmarks)):
-                #Daumen Schliesswinkel
-                vec_thumb_low.append(norm_landmarks[i][1][:] - norm_landmarks[i][2][:]) #Berechne oberen Vektor
-                vec_thumb_high.append(norm_landmarks[i][4][:] - norm_landmarks[i][3][:])#Berechne unteren Vektor
-                angle_thumb.append(math.acos(np.dot(vec_thumb_high[i], vec_thumb_low[i])/(np.linalg.norm(vec_thumb_low[i])*np.linalg.norm(vec_thumb_high[i])))) #Berechne Winkel in rad
-                #Daumenwinkel in Handebene
+                # Thumb closing angle
+                vec_thumb_low.append(norm_landmarks[i][1][:] - norm_landmarks[i][2][:]) # Calculate upper vector
+                vec_thumb_high.append(norm_landmarks[i][4][:] - norm_landmarks[i][3][:])# Calculate lower vector
+                angle_thumb.append(math.acos(np.dot(vec_thumb_high[i], vec_thumb_low[i])/(np.linalg.norm(vec_thumb_low[i])*np.linalg.norm(vec_thumb_high[i])))) # Calculate angle in rad
+                # Thumb angle in hand plane
                 vec_thumb_low2.append(norm_landmarks[i][3][:] - norm_landmarks[i][2][:])
                 vec_thumb_high2.append(norm_landmarks[i][9][:] - norm_landmarks[i][0][:])
                 angle_thumb2.append(math.acos(np.dot(vec_thumb_high2[i], vec_thumb_low2[i])/(np.linalg.norm(vec_thumb_low2[i])*np.linalg.norm(vec_thumb_high2[i]))))
 
-                #Zeigefinger                
+                # Index finger
                 vec_idx_low.append(norm_landmarks[i][5][:] - norm_landmarks[i][6][:])
                 vec_idx_high.append(norm_landmarks[i][8][:] - norm_landmarks[i][7][:])
                 angle_idx.append(math.acos(np.dot(vec_idx_high[i], vec_idx_low[i])/(np.linalg.norm(vec_idx_low[i])*np.linalg.norm(vec_idx_high[i]))))
 
 
-                #Mittelfinger                
+                # Middle finger
                 vec_mid_low.append(norm_landmarks[i][9][:] - norm_landmarks[i][10][:])
                 vec_mid_high.append(norm_landmarks[i][12][:] - norm_landmarks[i][11][:])
                 angle_mid.append(math.acos(np.dot(vec_mid_high[i], vec_mid_low[i])/(np.linalg.norm(vec_mid_low[i])*np.linalg.norm(vec_mid_high[i]))))
 
 
-                #Ringfinger                
+                # Ring finger
                 vec_rng_low.append(norm_landmarks[i][13][:] - norm_landmarks[i][14][:])
                 vec_rng_high.append(norm_landmarks[i][16][:] - norm_landmarks[i][15][:])
                 angle_rng.append(math.acos(np.dot(vec_rng_high[i], vec_rng_low[i])/(np.linalg.norm(vec_rng_low[i])*np.linalg.norm(vec_rng_high[i]))))
 
 
-                #Kleiner Finger                
+                # Little finger
                 vec_ltl_low.append(norm_landmarks[i][17][:] - norm_landmarks[i][18][:])
                 vec_ltl_high.append(norm_landmarks[i][20][:] - norm_landmarks[i][19][:])
                 angle_ltl.append(math.acos(np.dot(vec_ltl_high[i], vec_ltl_low[i])/(np.linalg.norm(vec_ltl_low[i])*np.linalg.norm(vec_ltl_high[i]))))
 
 
-            # Sammeln der Winkeldaten in einzelnem Array: angle_array[0,:] - thumb, angle_array[1,:] - index usw.
+            # Collect angle data in a single array: angle_array[0,:] - thumb, angle_array[1,:] - index etc.
             # Note: angle_array will have shape (6, num_hands)
             angle_array.append(angle_thumb)
             angle_array.append(angle_thumb2)
@@ -908,28 +908,28 @@ class HandTracker:
 
             # Angle calculation moved before this block
 
-            #Aufbau der Matrix angle_array:
-                #[Daumen Schliesswinkel links][Daumen Schliesswinkel rechts]
-                #[Daumenwinkel Handebene links][Daumenwinkel Handebene rechts]
-                #[Zeigefingerwinkel links][Zeigefingerwinkel rechts]
-                #[Mittelfingerwinkel links][Mittelfingerwinkel rechts]
-                #[Ringfingerwinkel links][Ringfingerwinkel rechts]
-                #[Kleiner Fingerwinkel links][Kleiner Fingerwinkel rechts]
-                    #2 Haende im Bild: Werte für linke hand in nullter Dimension eines Winkelvektors (self.angle_array_final[:,0]);Werte fuer rechte Hand in erster Dimension
-                    #Eindimensional wenn nur eine Hand im Bild
-                    #3 dimensional wenn 3 Haende im Bild aber nicht getestet
+            # Structure of the angle_array matrix:
+                # [Thumb closing angle left][Thumb closing angle right]
+                # [Thumb angle hand plane left][Thumb angle hand plane right]
+                # [Index finger angle left][Index finger angle right]
+                # [Middle finger angle left][Middle finger angle right]
+                # [Ring finger angle left][Ring finger angle right]
+                # [Little finger angle left][Little finger angle right]
+                    # 2 hands in image: Values for left hand in zeroth dimension of an angle vector (self.angle_array_final[:,0]); Values for right hand in first dimension
+                    # One-dimensional if only one hand in image
+                    # Three-dimensional if 3 hands in image but not tested
 
-            for i in range(0, len(angle_array)):  #Umrechnung von rad in grad
+            for i in range(0, len(angle_array)):  # Conversion from rad to deg
                 for j in range(0, len(angle_array[i])):
                     angle_array[i][j] = angle_array[i][j] * (180/math.pi)
 
             
-            #print('Platzhalter', angle_array.ndim) #Print fuer Debugging
+            #print('Placeholder', angle_array.ndim) # Print for debugging
 
-        #Speichere Array als Attribut von Tracker
+        # Store array as tracker attribute
         self.angle_array_final = angle_array  
 
-        #Wenn Orientation kleiner/gleich 0.5 ist werden Positionen fuer linke und rechte Hand in matrix vertauscht, das wird im folgenden umgekehrt, funktioniert nur im Fall fuer 2 Haende
+        # If orientation is less than/equal to 0.5, positions for left and right hand in the matrix are swapped, this is reversed below, only works for the case of 2 hands
         if len(norm_landmarks) == 2:      
             if orientation < 0.5:
                 self.angle_array_final[:,0] = angle_array[:,1]
