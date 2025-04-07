@@ -76,29 +76,27 @@ servoBrick3 = BrickletServoV2(UID_SERVO_BRICK_3, ipcon) # Left Arm + Fingers
 
 green_cube_center = 0.0
 
-# --- Servo Helper Functions ---
+# --- Servo Helper Function ---
 
-def configure_servo(servo_brick: BrickletServoV2, servo_index: int,
-                    pulse_min: int = DEFAULT_PULSE_MIN, pulse_max: int = DEFAULT_PULSE_MAX,
-                    velocity: int = DEFAULT_VELOCITY, acceleration: int = DEFAULT_ACCELERATION,
-                    deceleration: int = DEFAULT_DECELERATION):
-    """Configures pulse width and motion profile for a specific servo."""
+def set_servo(servo_brick: BrickletServoV2, servo_index: int, position: int,
+              enable: bool = True,
+              pulse_min: int = DEFAULT_PULSE_MIN, pulse_max: int = DEFAULT_PULSE_MAX,
+              velocity: int = DEFAULT_VELOCITY, acceleration: int = DEFAULT_ACCELERATION,
+              deceleration: int = DEFAULT_DECELERATION):
+    """Configures motion profile, pulse width, sets target position, and enables a specific servo."""
     try:
+        # Configure first
         servo_brick.set_pulse_width(servo_index, pulse_min, pulse_max)
         servo_brick.set_motion_configuration(servo_index, velocity, acceleration, deceleration)
-    except Exception as e:
-        print(f"Error configuring servo {servo_index} on brick {servo_brick.uid}: {e}")
-
-def set_servo_position(servo_brick: BrickletServoV2, servo_index: int, position: int, enable: bool = True):
-    """Sets the target position for a specific servo and enables it."""
-    try:
+        # Then set position
         servo_brick.set_position(servo_index, position)
+        # Finally enable
         if enable:
             servo_brick.set_enable(servo_index, True)
     except Exception as e:
-        print(f"Error setting position for servo {servo_index} on brick {servo_brick.uid}: {e}")
+        print(f"Error setting/configuring servo {servo_index} on brick {servo_brick.uid}: {e}")
 
-# --- End Servo Helper Functions ---
+# --- End Servo Helper Function ---
 
 
 def to_planar(arr: np.ndarray, shape: tuple) -> np.ndarray:
@@ -705,32 +703,24 @@ class HandTracker:
         
         
         if len(res.get("lm_score",[])) == 0: # No hands detected, move to default/initial position
-            # Configure and set positions using helpers and constants
+            # Set positions using the combined helper function (config uses defaults)
             # Shoulder Vertical Left
-            configure_servo(servoBrick2, SERVO_IDX_SHOULDER_VERTICAL_L)
-            set_servo_position(servoBrick2, SERVO_IDX_SHOULDER_VERTICAL_L, 0)
+            set_servo(servoBrick2, SERVO_IDX_SHOULDER_VERTICAL_L, 0)
             # Shoulder Vertical Right
-            configure_servo(servoBrick2, SERVO_IDX_SHOULDER_VERTICAL_R)
-            set_servo_position(servoBrick2, SERVO_IDX_SHOULDER_VERTICAL_R, -9000)
+            set_servo(servoBrick2, SERVO_IDX_SHOULDER_VERTICAL_R, -9000)
             # Elbow Left
-            configure_servo(servoBrick3, SERVO_IDX_ELBOW_L) # Assuming default config is okay here
-            set_servo_position(servoBrick3, SERVO_IDX_ELBOW_L, -3500)
+            set_servo(servoBrick3, SERVO_IDX_ELBOW_L, -3500)
             # Elbow Right
-            configure_servo(servoBrick1, SERVO_IDX_ELBOW_R) # Assuming default config is okay here
-            set_servo_position(servoBrick1, SERVO_IDX_ELBOW_R, 5000)
+            set_servo(servoBrick1, SERVO_IDX_ELBOW_R, 5000)
             # Lower Arm Rotation Left
-            configure_servo(servoBrick3, SERVO_IDX_LOWER_ARM_L) # Assuming default config is okay here
-            set_servo_position(servoBrick3, SERVO_IDX_LOWER_ARM_L, 0)
+            set_servo(servoBrick3, SERVO_IDX_LOWER_ARM_L, 0)
             # Lower Arm Rotation Right
-            configure_servo(servoBrick1, SERVO_IDX_LOWER_ARM_R) # Assuming default config is okay here
-            set_servo_position(servoBrick1, SERVO_IDX_LOWER_ARM_R, 0)
+            set_servo(servoBrick1, SERVO_IDX_LOWER_ARM_R, 0)
             # Shoulder Horizontal Left (Upper Arm Left)
-            configure_servo(servoBrick3, SERVO_IDX_SHOULDER_HORIZONTAL_L)
-            set_servo_position(servoBrick3, SERVO_IDX_SHOULDER_HORIZONTAL_L, 6000)
+            set_servo(servoBrick3, SERVO_IDX_SHOULDER_HORIZONTAL_L, 6000)
             # Shoulder Horizontal Right
-            configure_servo(servoBrick1, SERVO_IDX_SHOULDER_HORIZONTAL_R)
             # Note: shoulder_horizontal_left is 0 here as it's calculated later based on hand landmarks
-            set_servo_position(servoBrick1, SERVO_IDX_SHOULDER_HORIZONTAL_R, 0) # Set to 0 initially
+            set_servo(servoBrick1, SERVO_IDX_SHOULDER_HORIZONTAL_R, 0) # Set to 0 initially
 
         for i in range(len(res.get("lm_score",[]))):
             hand = self.extract_hand_data(res, i)
@@ -873,29 +863,23 @@ class HandTracker:
             # using the right hand's angles if available.
 
             if index_hand_right > -1: # If right hand is detected
-                # Move left arm based on right hand's position (mirroring)
+                # Move left arm based on right hand's position (mirroring) using the combined helper
                 # Upper Arm Left (Shoulder Horizontal Left) controlled by right hand horizontal pos
-                configure_servo(servoBrick3, SERVO_IDX_SHOULDER_HORIZONTAL_L)
-                set_servo_position(servoBrick3, SERVO_IDX_SHOULDER_HORIZONTAL_L, horizontal_right)
+                set_servo(servoBrick3, SERVO_IDX_SHOULDER_HORIZONTAL_L, horizontal_right)
                 # Shoulder Vertical Left controlled by right hand vertical pos
-                configure_servo(servoBrick2, SERVO_IDX_SHOULDER_VERTICAL_L)
-                set_servo_position(servoBrick2, SERVO_IDX_SHOULDER_VERTICAL_L, shoulder_vertical_right)
+                set_servo(servoBrick2, SERVO_IDX_SHOULDER_VERTICAL_L, shoulder_vertical_right)
 
                 # Elbow Left - Set to a fixed position when right hand detected?
-                configure_servo(servoBrick3, SERVO_IDX_ELBOW_L)
-                set_servo_position(servoBrick3, SERVO_IDX_ELBOW_L, -3000)
+                set_servo(servoBrick3, SERVO_IDX_ELBOW_L, -3000)
                 # Lower Arm Rotation Left - Set to a fixed position when right hand detected?
-                configure_servo(servoBrick3, SERVO_IDX_LOWER_ARM_L)
-                set_servo_position(servoBrick3, SERVO_IDX_LOWER_ARM_L, 5500)
+                set_servo(servoBrick3, SERVO_IDX_LOWER_ARM_L, 5500)
 
                 # TODO: Control left fingers based on calculated right hand finger angles
-                # configure_servo(servoBrick3, SERVO_IDX_THUMB_L_OPPOSITION)
+                # set_servo(servoBrick3, SERVO_IDX_THUMB_L_OPPOSITION, value_thumb_stretch2)
                 # set_servo_position(servoBrick3, SERVO_IDX_THUMB_L_OPPOSITION, value_thumb_stretch2)
                 # TODO: Control left fingers based on calculated right hand finger angles (value_... variables)
-                # configure_servo(servoBrick3, SERVO_IDX_THUMB_L_OPPOSITION)
-                # set_servo_position(servoBrick3, SERVO_IDX_THUMB_L_OPPOSITION, value_thumb_stretch2)
-                # configure_servo(servoBrick3, SERVO_IDX_THUMB_L_PROXIMAL)
-                # set_servo_position(servoBrick3, SERVO_IDX_THUMB_L_PROXIMAL, value_thumb_stretch)
+                # set_servo(servoBrick3, SERVO_IDX_THUMB_L_OPPOSITION, value_thumb_stretch2)
+                # set_servo(servoBrick3, SERVO_IDX_THUMB_L_PROXIMAL, value_thumb_stretch)
                 # ... and so on for other fingers ...
 
                 # Update left_target for recording (using the mirrored arm values and calculated finger values)
@@ -971,13 +955,13 @@ class HandTracker:
         # Note: Configuration (pulse, speed) is likely already set from next_frame
         print("Exiting: Moving servos to final positions...")
         # Shoulder vertical left (Example: move to 0)
-        # set_servo_position(servoBrick2, SERVO_IDX_SHOULDER_VERTICAL_L, 0)
+        # set_servo(servoBrick2, SERVO_IDX_SHOULDER_VERTICAL_L, 0)
         # Elbow left
-        set_servo_position(servoBrick3, SERVO_IDX_ELBOW_L, -3500)
+        set_servo(servoBrick3, SERVO_IDX_ELBOW_L, -3500)
         # Lower arm rotation left
-        set_servo_position(servoBrick3, SERVO_IDX_LOWER_ARM_L, 5500)
+        set_servo(servoBrick3, SERVO_IDX_LOWER_ARM_L, 5500)
         # Shoulder horizontal - upper arm rotation left
-        set_servo_position(servoBrick3, SERVO_IDX_SHOULDER_HORIZONTAL_L, 6000)
+        set_servo(servoBrick3, SERVO_IDX_SHOULDER_HORIZONTAL_L, 6000)
         # TODO: Add final positions for other servos (right arm, fingers) if needed
 
         global recording
