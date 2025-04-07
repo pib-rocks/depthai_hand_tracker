@@ -39,7 +39,7 @@ SERVO_IDX_SHOULDER_HORIZONTAL_R = 9
 SERVO_IDX_SHOULDER_VERTICAL_L = 9
 SERVO_IDX_SHOULDER_VERTICAL_R = 1
 # Brick 3 (Left Arm + Fingers)
-SERVO_IDX_SHOULDER_HORIZONTAL_L = 9 # Also referred to as Upper Arm Left
+SERVO_IDX_SHOULDER_HORIZONTAL_L = 9 # Shoulder Horizontal Left
 SERVO_IDX_THUMB_L_OPPOSITION = 0
 SERVO_IDX_THUMB_L_PROXIMAL = 1
 SERVO_IDX_INDEX_L_PROXIMAL = 2
@@ -111,7 +111,7 @@ def get_left_observation():
     try:
         # Use constants for servo indices
         obs.append(to_radians(servoBrick2.get_position(SERVO_IDX_SHOULDER_VERTICAL_L)))
-        obs.append(to_radians(servoBrick3.get_position(SERVO_IDX_SHOULDER_HORIZONTAL_L))) # upper_arm_left
+        obs.append(to_radians(servoBrick3.get_position(SERVO_IDX_SHOULDER_HORIZONTAL_L))) # shoulder_horizontal_left
         obs.append(to_radians(servoBrick3.get_position(SERVO_IDX_THUMB_L_OPPOSITION)))
         obs.append(to_radians(servoBrick3.get_position(SERVO_IDX_THUMB_L_PROXIMAL)))
         obs.append(to_radians(servoBrick3.get_position(SERVO_IDX_INDEX_L_PROXIMAL)))
@@ -130,11 +130,11 @@ def get_left_action():
     try:
         # Map action names to servo indices (assuming the order matches get_left_observation)
         # Note: Elbow, forearm, wrist are not included here as per the comment
-        acts.append(to_radians(left_target["shoulder_vertical"])) # Corresponds to SERVO_IDX_SHOULDER_VERTICAL_L
-        acts.append(to_radians(left_target["upper_arm"]))         # Corresponds to SERVO_IDX_SHOULDER_HORIZONTAL_L
-        acts.append(to_radians(left_target["thumb_opposition"]))  # Corresponds to SERVO_IDX_THUMB_L_OPPOSITION
-        acts.append(to_radians(left_target["thumb_proximal"]))    # Corresponds to SERVO_IDX_THUMB_L_PROXIMAL
-        acts.append(to_radians(left_target["index"]))             # Corresponds to SERVO_IDX_INDEX_L_PROXIMAL
+        acts.append(to_radians(left_target["shoulder_vertical"]))   # Corresponds to SERVO_IDX_SHOULDER_VERTICAL_L
+        acts.append(to_radians(left_target["shoulder_horizontal"])) # Corresponds to SERVO_IDX_SHOULDER_HORIZONTAL_L (Renamed key)
+        acts.append(to_radians(left_target["thumb_opposition"]))    # Corresponds to SERVO_IDX_THUMB_L_OPPOSITION
+        acts.append(to_radians(left_target["thumb_proximal"]))      # Corresponds to SERVO_IDX_THUMB_L_PROXIMAL
+        acts.append(to_radians(left_target["index"]))               # Corresponds to SERVO_IDX_INDEX_L_PROXIMAL
         acts.append(to_radians(left_target["middle"]))            # Corresponds to SERVO_IDX_MIDDLE_L_PROXIMAL
         acts.append(to_radians(left_target["ring"]))              # Corresponds to SERVO_IDX_RING_L_PROXIMAL
         acts.append(to_radians(left_target["pinky"]))             # Corresponds to SERVO_IDX_PINKY_L_PROXIMAL
@@ -699,7 +699,7 @@ class HandTracker:
         index_hand_right = -1
         index_hand_left  = -1
         shoulder_horizontal_left = 0
-        horizontal_right = 0
+        shoulder_horizontal_right = 0 # Renamed from horizontal_right
         
         
         if len(res.get("lm_score",[])) == 0: # No hands detected, move to default/initial position
@@ -716,10 +716,10 @@ class HandTracker:
             set_servo(servoBrick3, SERVO_IDX_LOWER_ARM_L, 0)
             # Lower Arm Rotation Right
             set_servo(servoBrick1, SERVO_IDX_LOWER_ARM_R, 0)
-            # Shoulder Horizontal Left (Upper Arm Left)
+            # Shoulder Horizontal Left
             set_servo(servoBrick3, SERVO_IDX_SHOULDER_HORIZONTAL_L, 6000)
             # Shoulder Horizontal Right
-            # Note: shoulder_horizontal_left is 0 here as it's calculated later based on hand landmarks
+            # Note: shoulder_horizontal_right is 0 here as it's calculated later based on hand landmarks
             set_servo(servoBrick1, SERVO_IDX_SHOULDER_HORIZONTAL_R, 0) # Set to 0 initially
 
         for i in range(len(res.get("lm_score",[]))):
@@ -733,7 +733,7 @@ class HandTracker:
                 shoulder_vertical_left = 4000 - hand.landmarks[0][1] * 13 - 2000
             if hand.label=="right":
                 index_hand_right = i
-                horizontal_right = hand.landmarks[0][0] * 13 - 4000
+                shoulder_horizontal_right = hand.landmarks[0][0] * 13 - 4000 # Renamed from horizontal_right
                 shoulder_vertical_right = hand.landmarks[0][1] * 13 + 1500
             hands.append(hand)
             
@@ -864,8 +864,8 @@ class HandTracker:
 
             if index_hand_right > -1: # If right hand is detected
                 # Move left arm based on right hand's position (mirroring) using the combined helper
-                # Upper Arm Left (Shoulder Horizontal Left) controlled by right hand horizontal pos
-                set_servo(servoBrick3, SERVO_IDX_SHOULDER_HORIZONTAL_L, horizontal_right)
+                # Shoulder Horizontal Left controlled by right hand horizontal pos
+                set_servo(servoBrick3, SERVO_IDX_SHOULDER_HORIZONTAL_L, shoulder_horizontal_right) # Use renamed variable
                 # Shoulder Vertical Left controlled by right hand vertical pos
                 set_servo(servoBrick2, SERVO_IDX_SHOULDER_VERTICAL_L, shoulder_vertical_right)
 
@@ -886,7 +886,7 @@ class HandTracker:
                 # The value_... variables now hold the servo commands derived from the right hand's finger angles.
                 left_target = {
                         "shoulder_vertical": shoulder_vertical_right, # Mirrored value
-                        "upper_arm": horizontal_right,             # Mirrored value
+                        "shoulder_horizontal": shoulder_horizontal_right, # Renamed key and use renamed variable
                         "thumb_opposition": value_thumb_stretch2,  # Use calculated servo value from right hand angle
                         "thumb_proximal": value_thumb_stretch,     # Use calculated servo value from right hand angle
                         "index": value_idx,                        # Use calculated servo value from right hand angle
@@ -960,7 +960,7 @@ class HandTracker:
         set_servo(servoBrick3, SERVO_IDX_ELBOW_L, -3500)
         # Lower arm rotation left
         set_servo(servoBrick3, SERVO_IDX_LOWER_ARM_L, 5500)
-        # Shoulder horizontal - upper arm rotation left
+        # Shoulder horizontal left
         set_servo(servoBrick3, SERVO_IDX_SHOULDER_HORIZONTAL_L, 6000)
         # TODO: Add final positions for other servos (right arm, fingers) if needed
 
