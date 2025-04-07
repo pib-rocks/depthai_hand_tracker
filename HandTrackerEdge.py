@@ -772,9 +772,9 @@ class HandTracker:
             vec_ltl_low = []
             vec_ltl_high = []
             angle_ltl = []
-            
+
             #beruecksichtige Anzahl der Haende; Nummerierung der Landmarks stimmt mit Zeichnung aus Github ueberein; erste Dimension der Matrix norm_landmarks ist index der Hand (0 wenn keine Hand, 1 wenn eine Hand, 2 wenn 2 Haende, ...)
-            for i in range(0,len(norm_landmarks)):      
+            for i in range(0,len(norm_landmarks)):
                 #Daumen Schliesswinkel
                 vec_thumb_low.append(norm_landmarks[i][1][:] - norm_landmarks[i][2][:]) #Berechne oberen Vektor
                 vec_thumb_high.append(norm_landmarks[i][4][:] - norm_landmarks[i][3][:])#Berechne unteren Vektor
@@ -807,35 +807,70 @@ class HandTracker:
                 vec_ltl_high.append(norm_landmarks[i][20][:] - norm_landmarks[i][19][:])
                 angle_ltl.append(math.acos(np.dot(vec_ltl_high[i], vec_ltl_low[i])/(np.linalg.norm(vec_ltl_low[i])*np.linalg.norm(vec_ltl_high[i]))))
 
-            
-                
-                
-                
-            global left_target
-            # Finger angle calculations (value_thumb_stretch2, value_thumb_stretch, etc.) happen here
-            # TODO: These calculations should ideally be moved to a separate function
-            # Assuming value_... variables are calculated correctly before this block
-            value_thumb_stretch = 0 # Placeholder - these need actual calculation from angle_array
-            value_thumb_stretch2 = 0 # Placeholder
-            value_idx = 0 # Placeholder
-            value_mid = 0 # Placeholder
-            value_rng = 0 # Placeholder
-            value_ltl = 0 # Placeholder
-            # Extract finger angles if available (needs careful handling of indices based on detected hands)
-            if angle_array.size > 0:
-                 # Example: Assuming right hand is detected (index_hand_right > -1)
-                 # and angle_array has shape (6, num_hands)
-                 hand_angle_index = 1 if len(norm_landmarks) == 2 and orientation < 0.5 else (0 if index_hand_right > -1 else -1) # Determine correct column index
-                 if hand_angle_index != -1 and angle_array.shape[1] > hand_angle_index:
-                     # Map calculated angles (degrees) to servo values (need scaling/offset)
-                     # These mappings are guesses and need verification/tuning
-                     value_thumb_stretch = int(angle_array[0, hand_angle_index] * 100) # Example scaling
-                     value_thumb_stretch2 = int(angle_array[1, hand_angle_index] * 100) # Example scaling
-                     value_idx = int(angle_array[2, hand_angle_index] * 100) # Example scaling
-                     value_mid = int(angle_array[3, hand_angle_index] * 100) # Example scaling
-                     value_rng = int(angle_array[4, hand_angle_index] * 100) # Example scaling
-                     value_ltl = int(angle_array[5, hand_angle_index] * 100) # Example scaling
 
+            # Sammeln der Winkeldaten in einzelnem Array: angle_array[0,:] - thumb, angle_array[1,:] - index usw.
+            # Note: angle_array will have shape (6, num_hands)
+            angle_array.append(angle_thumb)
+            angle_array.append(angle_thumb2)
+            angle_array.append(angle_idx)
+            angle_array.append(angle_mid)
+            angle_array.append(angle_rng)
+            angle_array.append(angle_ltl)
+            angle_array = np.array(angle_array) # Shape (6, num_hands)
+
+            # Convert radians to degrees
+            if angle_array.size > 0:
+                angle_array = angle_array * (180 / math.pi)
+
+            # Correct orientation if needed (swap columns if left hand detected first but is actually right hand)
+            # This part assumes 'orientation' reflects the handedness of the *first* detected hand (index 0)
+            if len(norm_landmarks) == 2 and orientation < 0.5: # If 2 hands detected and first one is left (but might be mirrored)
+                 # Swap columns so angle_array[:, 0] is always left, angle_array[:, 1] is always right
+                 angle_array = angle_array[:, ::-1]
+
+
+            # --- Servo Control based on detected hands ---
+            global left_target
+            # TODO: This whole section could be refactored further for clarity
+
+            # Placeholder values for finger servo commands - will be updated if right hand detected
+            value_thumb_stretch = 0
+            value_thumb_stretch2 = 0
+            value_idx = 0
+            value_mid = 0
+            value_rng = 0
+            value_ltl = 0
+
+            # Determine the column index for the right hand's angles in angle_array
+            # It's 1 if two hands are detected, 0 if only the right hand is detected.
+            right_hand_angle_col = -1
+            if index_hand_right != -1:
+                if len(norm_landmarks) == 2:
+                    right_hand_angle_col = 1
+                elif len(norm_landmarks) == 1:
+                    right_hand_angle_col = 0
+
+            # Map calculated right hand angles (degrees) to servo values if right hand is present
+            if right_hand_angle_col != -1 and angle_array.size > 0 and angle_array.shape[1] > right_hand_angle_col:
+                # These mappings are guesses based on original intent and need verification/tuning
+                # Map angles (0-180 deg) to servo range (e.g., 0-9000 or specific pulse widths)
+                # Example: Simple linear mapping (needs adjustment)
+                # angle_thumb[right] -> value_thumb_stretch
+                # angle_thumb2[right] -> value_thumb_stretch2
+                # angle_idx[right] -> value_idx
+                # ... etc ...
+                # Placeholder scaling - replace with actual calibrated mapping
+                value_thumb_stretch = int(angle_array[0, right_hand_angle_col] * 50)  # Map 180deg to 9000
+                value_thumb_stretch2 = int(angle_array[1, right_hand_angle_col] * 50) # Map 180deg to 9000
+                value_idx = int(angle_array[2, right_hand_angle_col] * 50)           # Map 180deg to 9000
+                value_mid = int(angle_array[3, right_hand_angle_col] * 50)           # Map 180deg to 9000
+                value_rng = int(angle_array[4, right_hand_angle_col] * 50)           # Map 180deg to 9000
+                value_ltl = int(angle_array[5, right_hand_angle_col] * 50)           # Map 180deg to 9000
+                # Clamp values to servo limits if necessary (e.g., 0 to 9000 or pulse min/max)
+
+
+            # The calculation of value_... finger servo commands now happens *before* this block,
+            # using the right hand's angles if available.
 
             if index_hand_right > -1: # If right hand is detected
                 # Move left arm based on right hand's position (mirroring)
@@ -856,18 +891,24 @@ class HandTracker:
                 # TODO: Control left fingers based on calculated right hand finger angles
                 # configure_servo(servoBrick3, SERVO_IDX_THUMB_L_OPPOSITION)
                 # set_servo_position(servoBrick3, SERVO_IDX_THUMB_L_OPPOSITION, value_thumb_stretch2)
+                # TODO: Control left fingers based on calculated right hand finger angles (value_... variables)
+                # configure_servo(servoBrick3, SERVO_IDX_THUMB_L_OPPOSITION)
+                # set_servo_position(servoBrick3, SERVO_IDX_THUMB_L_OPPOSITION, value_thumb_stretch2)
+                # configure_servo(servoBrick3, SERVO_IDX_THUMB_L_PROXIMAL)
+                # set_servo_position(servoBrick3, SERVO_IDX_THUMB_L_PROXIMAL, value_thumb_stretch)
                 # ... and so on for other fingers ...
 
-                # Update left_target for recording (using the mirrored values)
+                # Update left_target for recording (using the mirrored arm values and calculated finger values)
+                # The value_... variables now hold the servo commands derived from the right hand's finger angles.
                 left_target = {
                         "shoulder_vertical": shoulder_vertical_right, # Mirrored value
                         "upper_arm": horizontal_right,             # Mirrored value
-                        "thumb_opposition": value_thumb_stretch2,  # Use calculated angle value
-                        "thumb_proximal": value_thumb_stretch,     # Use calculated angle value
-                        "index": value_idx,                        # Use calculated angle value
-                        "middle": value_mid,                       # Use calculated angle value
-                        "ring": value_rng,                         # Use calculated angle value
-                        "pinky": value_ltl                         # Use calculated angle value
+                        "thumb_opposition": value_thumb_stretch2,  # Use calculated servo value from right hand angle
+                        "thumb_proximal": value_thumb_stretch,     # Use calculated servo value from right hand angle
+                        "index": value_idx,                        # Use calculated servo value from right hand angle
+                        "middle": value_mid,                       # Use calculated servo value from right hand angle
+                        "ring": value_rng,                         # Use calculated servo value from right hand angle
+                        "pinky": value_ltl                         # Use calculated servo value from right hand angle
                         }
                 if not self.is_initialized:
                     global record_thread
@@ -875,16 +916,9 @@ class HandTracker:
                     record_thread.start()
                     self.is_initialized = True
 
-            #Sammeln der Winkeldaten in einzelnem Array: angle_array[0,:] - thumb, angle_array[1,:] - index usw.
-            angle_array.append(angle_thumb)
-            angle_array.append(angle_thumb2)
-            angle_array.append(angle_idx)
-            angle_array.append(angle_mid)
-            angle_array.append(angle_rng)
-            angle_array.append(angle_ltl)
-            angle_array = np.array(angle_array)
+            # Angle calculation moved before this block
 
-            #Aufbau der Matrix angle_array: 
+            #Aufbau der Matrix angle_array:
                 #[Daumen Schliesswinkel links][Daumen Schliesswinkel rechts]
                 #[Daumenwinkel Handebene links][Daumenwinkel Handebene rechts]
                 #[Zeigefingerwinkel links][Zeigefingerwinkel rechts]
