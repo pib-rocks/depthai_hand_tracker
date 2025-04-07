@@ -625,7 +625,7 @@ class HandTracker:
         import re
         code = re.sub(r'"{3}.*?"{3}', '', code, flags=re.DOTALL)
         code = re.sub(r'#.*', '', code)
-        code = re.sub('\n\s*\n', '\n', code)
+        code = re.sub(r'\n\s*\n', '\n', code) # Use raw string for regex
         # For debugging
         if self.trace & 8:
             with open("tmp_code.py", "w") as file:
