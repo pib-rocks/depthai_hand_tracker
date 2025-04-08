@@ -64,8 +64,8 @@ DEFAULT_PULSE_MAX = 2500
 
 # --- Robot Model Initialization ---
 try:
-    robot = pib_DH.pib() # Instantiate the robot model from pib_DH.py
-    print("Robot model loaded successfully.")
+    robot = pib_DH.pib_left() # Instantiate the LEFT arm robot model
+    print("Left arm robot model loaded successfully.")
     # You can print robot details to verify: print(robot)
 except Exception as e:
     print(f"Error loading robot model from pib_DH.py: {e}")
@@ -129,12 +129,12 @@ def calculate_forward_kinematics(joint_angles_rad):
                       or None if calculation fails or robot model is not loaded.
     """
     if robot is None:
-        print("Robot model not loaded, cannot calculate FK.")
+        print("Left arm robot model not loaded, cannot calculate FK.")
         return None
     if len(joint_angles_rad) != robot.n:
-         print(f"Error: Incorrect number of joint angles provided for FK. Expected {robot.n}, got {len(joint_angles_rad)}")
+         print(f"Error: Incorrect number of joint angles provided for FK. Expected {robot.n} (for {robot.name}), got {len(joint_angles_rad)}")
          # Return default/zero pose or handle error appropriately
-         return [0.0] * 6 # Or return None
+         return [0.0] * 6 # Return zero pose
 
     try:
         # Ensure input is a numpy array
@@ -161,71 +161,114 @@ def to_radians(servo_value):
     return (servo_value / 100) * (math.pi / 180.0)
     
 def get_left_observation():
-    obs = []
-    try:
-        # Use constants for servo indices
-        obs.append(to_radians(servoBrick2.get_position(SERVO_IDX_SHOULDER_VERTICAL_L)))
-        obs.append(to_radians(servoBrick3.get_position(SERVO_IDX_UPPER_ARM_L))) # upper_arm_left (Renamed constant)
-        obs.append(to_radians(servoBrick3.get_position(SERVO_IDX_THUMB_L_OPPOSITION)))
-        obs.append(to_radians(servoBrick3.get_position(SERVO_IDX_THUMB_L_PROXIMAL)))
-        obs.append(to_radians(servoBrick3.get_position(SERVO_IDX_INDEX_L_PROXIMAL)))
-        obs.append(to_radians(servoBrick3.get_position(SERVO_IDX_MIDDLE_L_PROXIMAL)))
-        obs.append(to_radians(servoBrick3.get_position(SERVO_IDX_RING_L_PROXIMAL)))
-        obs.append(to_radians(servoBrick3.get_position(SERVO_IDX_PINKY_L_PROXIMAL)))
+    # Observation vector structure:
+    # [shoulder_v, upper_a, thumb_opp, thumb_prox, index, middle, ring, pinky,
+    #  ee_x, ee_y, ee_z, ee_roll, ee_pitch, ee_yaw]
+    # Total 8 + 6 = 14 elements (excluding cube height added later)
+    obs = [0.0] * 8 # Initialize with zeros for the 8 standard observations
+    q_fk_obs = [0.0] * 6 # Initialize FK joints with zeros
 
-        # Calculate forward kinematics from observed joint angles
-        ee_pose_obs = calculate_forward_kinematics(obs)
-        if ee_pose_obs:
-            obs.extend(ee_pose_obs) # Append [x, y, z, roll, pitch, yaw]
-        else:
-            # Handle FK failure - append default values or raise error
-            obs.extend([0.0] * 6) # Append zeros if FK failed
+    try:
+        # --- Read Servo Positions ---
+        # Read main arm joints for FK (first 4 DoF)
+        q_fk_obs[0] = to_radians(servoBrick2.get_position(SERVO_IDX_SHOULDER_VERTICAL_L))
+        q_fk_obs[1] = to_radians(servoBrick3.get_position(SERVO_IDX_UPPER_ARM_L))
+        q_fk_obs[2] = to_radians(servoBrick3.get_position(SERVO_IDX_ELBOW_L))
+        q_fk_obs[3] = to_radians(servoBrick3.get_position(SERVO_IDX_LOWER_ARM_L))
+        # Assume wrist joints (DoF 5 and 6) are 0 for FK calculation
+        q_fk_obs[4] = 0.0
+        q_fk_obs[5] = 0.0
+
+        # Read finger joints for the standard observation vector
+        obs[2] = to_radians(servoBrick3.get_position(SERVO_IDX_THUMB_L_OPPOSITION))
+        obs[3] = to_radians(servoBrick3.get_position(SERVO_IDX_THUMB_L_PROXIMAL))
+        obs[4] = to_radians(servoBrick3.get_position(SERVO_IDX_INDEX_L_PROXIMAL))
+        obs[5] = to_radians(servoBrick3.get_position(SERVO_IDX_MIDDLE_L_PROXIMAL))
+        obs[6] = to_radians(servoBrick3.get_position(SERVO_IDX_RING_L_PROXIMAL))
+        obs[7] = to_radians(servoBrick3.get_position(SERVO_IDX_PINKY_L_PROXIMAL))
+
+        # Populate the first 2 elements of the standard observation vector
+        obs[0] = q_fk_obs[0] # Shoulder Vertical
+        obs[1] = q_fk_obs[1] # Upper Arm
+
+        # --- Calculate Forward Kinematics ---
+        ee_pose_obs = calculate_forward_kinematics(q_fk_obs)
+        if ee_pose_obs is None:
+            ee_pose_obs = [0.0] * 6 # Use zero pose if FK failed
 
     except Exception as e: # Catch specific exceptions if possible
         print(f"Observation error occurred: {e}")
-        # Ensure obs has the correct length even if an error occurred before FK
-        while len(obs) < (robot.n if robot else 8): # Append zeros for missing joints
-             obs.append(0.0)
-        if len(obs) == (robot.n if robot else 8): # Only append pose if joint angles were retrieved
-             obs.extend([0.0] * 6) # Append default pose on error
+        # Return default values if reading failed
+        obs = [0.0] * 8
+        ee_pose_obs = [0.0] * 6
 
-    return obs
+    # Append pose to the observation vector
+    obs.extend(ee_pose_obs) # Append [x, y, z, roll, pitch, yaw]
+
+    return obs # Return the 14-element list
 
 def get_left_action():
+    # Action vector structure:
+    # [target_shoulder_v, target_upper_a, target_thumb_opp, ..., target_pinky,
+    #  target_ee_x, target_ee_y, target_ee_z, target_ee_roll, target_ee_pitch, target_ee_yaw]
+    # Total 8 + 6 = 14 elements
     if left_target is None:
-        return None
+        print("left_target is None, cannot get actions.")
+        return None # Or return default action vector [0.0] * 14?
 
-    acts = []
+    acts = [0.0] * 8 # Initialize standard action vector
+    q_fk_acts = [0.0] * 6 # Initialize FK joints vector
+
     try:
-        # Map action names to servo indices (assuming the order matches get_left_observation)
-        # Note: Elbow, forearm, wrist are not included here as per the comment
-        acts.append(to_radians(left_target["shoulder_vertical"]))   # Corresponds to SERVO_IDX_SHOULDER_VERTICAL_L
-        acts.append(to_radians(left_target["upper_arm"]))           # Corresponds to SERVO_IDX_UPPER_ARM_L (Reverted key)
-        acts.append(to_radians(left_target["thumb_opposition"]))    # Corresponds to SERVO_IDX_THUMB_L_OPPOSITION
-        acts.append(to_radians(left_target["thumb_proximal"]))      # Corresponds to SERVO_IDX_THUMB_L_PROXIMAL
-        acts.append(to_radians(left_target["index"]))               # Corresponds to SERVO_IDX_INDEX_L_PROXIMAL
-        acts.append(to_radians(left_target["middle"]))            # Corresponds to SERVO_IDX_MIDDLE_L_PROXIMAL
-        acts.append(to_radians(left_target["ring"]))              # Corresponds to SERVO_IDX_RING_L_PROXIMAL
-        acts.append(to_radians(left_target["pinky"]))             # Corresponds to SERVO_IDX_PINKY_L_PROXIMAL
+        # --- Populate Standard Action Vector ---
+        # Get target values from left_target dictionary
+        acts[0] = to_radians(left_target["shoulder_vertical"])
+        acts[1] = to_radians(left_target["upper_arm"])
+        acts[2] = to_radians(left_target["thumb_opposition"])
+        acts[3] = to_radians(left_target["thumb_proximal"])
+        acts[4] = to_radians(left_target["index"])
+        acts[5] = to_radians(left_target["middle"])
+        acts[6] = to_radians(left_target["ring"])
+        acts[7] = to_radians(left_target["pinky"])
 
-        # Calculate forward kinematics from target joint angles
-        ee_pose_acts = calculate_forward_kinematics(acts)
-        if ee_pose_acts:
-            acts.extend(ee_pose_acts) # Append [x, y, z, roll, pitch, yaw]
-        else:
-            # Handle FK failure - append default values or raise error
-            acts.extend([0.0] * 6) # Append zeros if FK failed
+        # --- Prepare Joints for FK Calculation ---
+        # Use target values for actively commanded joints
+        q_fk_acts[0] = acts[0] # Target Shoulder Vertical
+        q_fk_acts[1] = acts[1] # Target Upper Arm
 
-    except Exception as e: # Catch specific exceptions if possible
+        # Use *observed* values for joints not explicitly in left_target (Elbow, Lower Arm)
+        # This reflects the pose achievable given the current state of those joints
+        try:
+            q_fk_acts[2] = to_radians(servoBrick3.get_position(SERVO_IDX_ELBOW_L))
+            q_fk_acts[3] = to_radians(servoBrick3.get_position(SERVO_IDX_LOWER_ARM_L))
+        except Exception as read_err:
+            print(f"Error reading Elbow/Lower Arm position for FK in get_left_action: {read_err}")
+            # Use 0 if reading fails
+            q_fk_acts[2] = 0.0
+            q_fk_acts[3] = 0.0
+
+        # Assume wrist joints (DoF 5 and 6) are 0
+        q_fk_acts[4] = 0.0
+        q_fk_acts[5] = 0.0
+
+        # --- Calculate Forward Kinematics for Target Pose ---
+        ee_pose_acts = calculate_forward_kinematics(q_fk_acts)
+        if ee_pose_acts is None:
+            ee_pose_acts = [0.0] * 6 # Use zero pose if FK failed
+
+    except KeyError as e:
+        print(f"Acts key error: Missing key {e} in left_target dictionary.")
+        return None # Cannot proceed if target keys are missing
+    except Exception as e: # Catch other potential exceptions
         print(f"Acts exception occurred: {e}")
-        # Ensure acts has the correct length even if an error occurred before FK
-        while len(acts) < (robot.n if robot else 8): # Append zeros for missing joints
-             acts.append(0.0)
-        if len(acts) == (robot.n if robot else 8): # Only append pose if joint angles were retrieved
-             acts.extend([0.0] * 6) # Append default pose on error
+        # Return default values if error occurred
+        acts = [0.0] * 8
+        ee_pose_acts = [0.0] * 6
 
+    # Append target pose to the action vector
+    acts.extend(ee_pose_acts) # Append [x, y, z, roll, pitch, yaw]
 
-    return acts
+    return acts # Return the 14-element list
 
 def get_green_cube_height():
     if green_cube_center is None:
@@ -308,21 +351,21 @@ def record_trajectory():
         acts = get_left_action()
         if acts is None:
             print("acts are None")
+            time.sleep(0.01) # Add a small sleep if acts are None
             continue
 
-        # obs already contains joint angles + end effector pose [j1..jN, x,y,z,r,p,y]
+        # obs should be a list of 14 elements: [8 joints, 6 pose]
+        # acts should be a list of 14 elements: [8 target joints, 6 target pose]
         cube_height = get_green_cube_height()
-        obs_with_cube = obs + [cube_height] # Append cube height at the very end
 
-        obs_text=str(obs_with_cube) # Check length based on final structure
-        acts_text=str(acts) # acts already contains joint targets + end effector pose target
-
-        # Ensure lists are not empty before appending
-        if obs and acts:
-            trajectory["obs"].append(obs_with_cube)
-            trajectory["acts"].append(acts)
+        # Check if obs and acts are valid lists of expected length
+        if isinstance(obs, list) and len(obs) == 14 and isinstance(acts, list) and len(acts) == 14:
+            # Append cube height to the end of the observation vector
+            obs_final = obs + [cube_height] # Now 15 elements
+            trajectory["obs"].append(obs_final)
+            trajectory["acts"].append(acts) # acts remains 14 elements
         else:
-            print("length of obs or acts 0")
+            print(f"Skipping recording: Invalid obs (len={len(obs) if isinstance(obs, list) else 'N/A'}) or acts (len={len(acts) if isinstance(acts, list) else 'N/A'})")
         time.sleep(0.050)  #50 ms interval
 
 class HandTracker:
