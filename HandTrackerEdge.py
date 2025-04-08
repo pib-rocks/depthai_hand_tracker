@@ -165,18 +165,18 @@ def get_left_observation():
     # [shoulder_v, upper_a, thumb_opp, thumb_prox, index, middle, ring, pinky,
     #  ee_x, ee_y, ee_z, ee_roll, ee_pitch, ee_yaw]
     # Total 8 + 6 = 14 elements (excluding cube height added later)
-    obs = [0.0] * 8 # Initialize with zeros for the 8 standard observations
-    q_fk_obs = [0.0] * 6 # Initialize FK joints with zeros
+    obs = [0.0] * 8 # Initialize with zeros for the 8 standard observations (Shoulder V, Upper A, 6 Fingers)
+    q_fk_obs = [0.0] * 6 # Initialize FK joints with zeros (Shoulder H, Shoulder V, Upper A, Elbow, Lower A, Wrist)
 
     try:
         # --- Read Servo Positions ---
-        # Read main arm joints for FK (first 4 DoF)
-        q_fk_obs[0] = to_radians(servoBrick2.get_position(SERVO_IDX_SHOULDER_VERTICAL_L))
-        q_fk_obs[1] = to_radians(servoBrick3.get_position(SERVO_IDX_UPPER_ARM_L))
-        q_fk_obs[2] = to_radians(servoBrick3.get_position(SERVO_IDX_ELBOW_L))
-        q_fk_obs[3] = to_radians(servoBrick3.get_position(SERVO_IDX_LOWER_ARM_L))
-        # Assume wrist joints (DoF 5 and 6) are 0 for FK calculation
-        q_fk_obs[4] = 0.0
+        # Read 5 main arm joints for FK
+        q_fk_obs[0] = to_radians(servoBrick2.get_position(SERVO_IDX_SHOULDER_HORIZONTAL_L)) # Shoulder Horizontal L
+        q_fk_obs[1] = to_radians(servoBrick2.get_position(SERVO_IDX_SHOULDER_VERTICAL_L))   # Shoulder Vertical L
+        q_fk_obs[2] = to_radians(servoBrick3.get_position(SERVO_IDX_UPPER_ARM_L))           # Upper Arm L
+        q_fk_obs[3] = to_radians(servoBrick3.get_position(SERVO_IDX_ELBOW_L))               # Elbow L
+        q_fk_obs[4] = to_radians(servoBrick3.get_position(SERVO_IDX_LOWER_ARM_L))           # Lower Arm L
+        # Assume last wrist joint (DoF 6) is 0 for FK calculation
         q_fk_obs[5] = 0.0
 
         # Read finger joints for the standard observation vector
@@ -187,11 +187,11 @@ def get_left_observation():
         obs[6] = to_radians(servoBrick3.get_position(SERVO_IDX_RING_L_PROXIMAL))
         obs[7] = to_radians(servoBrick3.get_position(SERVO_IDX_PINKY_L_PROXIMAL))
 
-        # Populate the first 2 elements of the standard observation vector
-        obs[0] = q_fk_obs[0] # Shoulder Vertical
-        obs[1] = q_fk_obs[1] # Upper Arm
+        # Populate the first 2 elements of the standard observation vector (Shoulder V, Upper A)
+        obs[0] = q_fk_obs[1] # Shoulder Vertical L is the 2nd joint in q_fk_obs
+        obs[1] = q_fk_obs[2] # Upper Arm L is the 3rd joint in q_fk_obs
 
-        # --- Calculate Forward Kinematics ---
+        # --- Calculate Forward Kinematics using the 6 FK joints ---
         ee_pose_obs = calculate_forward_kinematics(q_fk_obs)
         if ee_pose_obs is None:
             ee_pose_obs = [0.0] * 6 # Use zero pose if FK failed
@@ -216,8 +216,8 @@ def get_left_action():
         print("left_target is None, cannot get actions.")
         return None # Or return default action vector [0.0] * 14?
 
-    acts = [0.0] * 8 # Initialize standard action vector
-    q_fk_acts = [0.0] * 6 # Initialize FK joints vector
+    acts = [0.0] * 8 # Initialize standard action vector (Target Shoulder V, Upper A, 6 Fingers)
+    q_fk_acts = [0.0] * 6 # Initialize FK joints vector (Shoulder H, Shoulder V, Upper A, Elbow, Lower A, Wrist)
 
     try:
         # --- Populate Standard Action Vector ---
@@ -232,26 +232,27 @@ def get_left_action():
         acts[7] = to_radians(left_target["pinky"])
 
         # --- Prepare Joints for FK Calculation ---
-        # Use target values for actively commanded joints
-        q_fk_acts[0] = acts[0] # Target Shoulder Vertical
-        q_fk_acts[1] = acts[1] # Target Upper Arm
+        # Use target values for actively commanded joints (Shoulder V, Upper A)
+        q_fk_acts[1] = acts[0] # Target Shoulder Vertical L (Index 1 in q_fk_acts)
+        q_fk_acts[2] = acts[1] # Target Upper Arm L (Index 2 in q_fk_acts)
 
-        # Use *observed* values for joints not explicitly in left_target (Elbow, Lower Arm)
-        # This reflects the pose achievable given the current state of those joints
+        # Use *observed* values for joints not explicitly in left_target (Shoulder H, Elbow, Lower Arm)
+        # This reflects the target pose achievable given the current state of those joints
         try:
-            q_fk_acts[2] = to_radians(servoBrick3.get_position(SERVO_IDX_ELBOW_L))
-            q_fk_acts[3] = to_radians(servoBrick3.get_position(SERVO_IDX_LOWER_ARM_L))
+            q_fk_acts[0] = to_radians(servoBrick2.get_position(SERVO_IDX_SHOULDER_HORIZONTAL_L)) # Observed Shoulder H
+            q_fk_acts[3] = to_radians(servoBrick3.get_position(SERVO_IDX_ELBOW_L))               # Observed Elbow L
+            q_fk_acts[4] = to_radians(servoBrick3.get_position(SERVO_IDX_LOWER_ARM_L))           # Observed Lower Arm L
         except Exception as read_err:
-            print(f"Error reading Elbow/Lower Arm position for FK in get_left_action: {read_err}")
+            print(f"Error reading non-target joint positions for FK in get_left_action: {read_err}")
             # Use 0 if reading fails
-            q_fk_acts[2] = 0.0
-            q_fk_acts[3] = 0.0
+            q_fk_acts[0] = 0.0 # Default Shoulder H
+            q_fk_acts[3] = 0.0 # Default Elbow L
+            q_fk_acts[4] = 0.0 # Default Lower Arm L
 
-        # Assume wrist joints (DoF 5 and 6) are 0
-        q_fk_acts[4] = 0.0
+        # Assume last wrist joint (DoF 6) is 0
         q_fk_acts[5] = 0.0
 
-        # --- Calculate Forward Kinematics for Target Pose ---
+        # --- Calculate Forward Kinematics for Target Pose using the 6 FK joints ---
         ee_pose_acts = calculate_forward_kinematics(q_fk_acts)
         if ee_pose_acts is None:
             ee_pose_acts = [0.0] * 6 # Use zero pose if FK failed
@@ -337,8 +338,9 @@ def detect_colors(frame):
     return center if center is not None else (-1,-1)
 
 trajectory = {
-    "obs": [],
-    "acts": [],
+    "obs": [],          # List of observations (each obs is [8 joints, 6 pose] = 14 elements)
+    "acts": [],         # List of actions (each act is [8 target joints, 6 target pose] = 14 elements)
+    "cube_heights": [], # List of cube heights corresponding to each observation step
     "infos": None,
     "terminal": True
 }
@@ -358,15 +360,17 @@ def record_trajectory():
         # acts should be a list of 14 elements: [8 target joints, 6 target pose]
         cube_height = get_green_cube_height()
 
-        # Check if obs and acts are valid lists of expected length
+        # Check if obs and acts are valid lists of expected length (14 elements each)
         if isinstance(obs, list) and len(obs) == 14 and isinstance(acts, list) and len(acts) == 14:
-            # Append cube height to the end of the observation vector
-            obs_final = obs + [cube_height] # Now 15 elements
-            trajectory["obs"].append(obs_final)
-            trajectory["acts"].append(acts) # acts remains 14 elements
+            # Append the 14-element observation and action vectors
+            trajectory["obs"].append(obs)
+            trajectory["acts"].append(acts)
+            # Append the corresponding cube height separately
+            trajectory["cube_heights"].append(cube_height)
         else:
             print(f"Skipping recording: Invalid obs (len={len(obs) if isinstance(obs, list) else 'N/A'}) or acts (len={len(acts) if isinstance(acts, list) else 'N/A'})")
-        time.sleep(0.050)  #50 ms interval
+
+        time.sleep(0.050)  # 50 ms interval
 
 class HandTracker:
     """
@@ -1119,6 +1123,7 @@ class HandTracker:
                 print(f"On frames with at least one landmark inference, average number of landmarks inferences/frame: {self.nb_lm_inferences/self.nb_frames_lm_inference:.2f}")
             if self.nb_lm_inferences:
                 print(f"# lm inferences: {self.nb_lm_inferences} - # failed lm inferences: {self.nb_failed_lm_inferences} ({100*self.nb_failed_lm_inferences/self.nb_lm_inferences:.1f}%)")
-            
+
             print(f"trajectory obs: {len(trajectory['obs'])}")
             print(f"trajectory acts: {len(trajectory['acts'])}")
+            print(f"trajectory cube_heights: {len(trajectory['cube_heights'])}")
