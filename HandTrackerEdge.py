@@ -19,6 +19,8 @@ from tinkerforge.bricklet_servo_v2 import BrickletServoV2
 from tinkerforge.bricklet_solid_state_relay_v2 import BrickletSolidStateRelayV2
 from datetime import datetime
 from tinkerforge.bricklet_base import Bricklet
+import roboticstoolbox as rtb
+import pib_DH # Assuming pib_DH.py is in the same directory or path
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 filename = f"trajectory_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
@@ -60,6 +62,18 @@ DEFAULT_PULSE_MAX = 2500
 
 # --- End Servo Configuration Constants ---
 
+# --- Robot Model Initialization ---
+try:
+    robot = pib_DH.pib() # Instantiate the robot model from pib_DH.py
+    print("Robot model loaded successfully.")
+    # You can print robot details to verify: print(robot)
+except Exception as e:
+    print(f"Error loading robot model from pib_DH.py: {e}")
+    robot = None # Set robot to None if loading fails
+
+# --- End Robot Model Initialization ---
+
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 PALM_DETECTION_MODEL = str(SCRIPT_DIR / "models/palm_detection_sh4.blob")
 LANDMARK_MODEL_FULL = str(SCRIPT_DIR / "models/hand_landmark_full_sh4.blob")
@@ -100,6 +114,44 @@ def set_servo(servo_brick: BrickletServoV2, servo_index: int, position: int,
 
 # --- End Servo Helper Function ---
 
+# --- Forward Kinematics Helper ---
+
+def calculate_forward_kinematics(joint_angles_rad):
+    """
+    Calculates the end-effector pose using forward kinematics.
+
+    Args:
+        joint_angles_rad (list or np.ndarray): List of joint angles in radians,
+                                              matching the order expected by the robot model.
+
+    Returns:
+        list or None: A list containing [x, y, z, roll, pitch, yaw] in meters and radians,
+                      or None if calculation fails or robot model is not loaded.
+    """
+    if robot is None:
+        print("Robot model not loaded, cannot calculate FK.")
+        return None
+    if len(joint_angles_rad) != robot.n:
+         print(f"Error: Incorrect number of joint angles provided for FK. Expected {robot.n}, got {len(joint_angles_rad)}")
+         # Return default/zero pose or handle error appropriately
+         return [0.0] * 6 # Or return None
+
+    try:
+        # Ensure input is a numpy array
+        q = np.array(joint_angles_rad)
+        # Calculate forward kinematics
+        pose_matrix = robot.fkine(q)
+        # Extract position (x, y, z)
+        position = pose_matrix.t.tolist() # [x, y, z]
+        # Extract orientation (roll, pitch, yaw)
+        orientation_rpy = pose_matrix.rpy().tolist() # [roll, pitch, yaw] in radians
+        return position + orientation_rpy
+    except Exception as e:
+        print(f"Error calculating forward kinematics: {e}")
+        return None
+
+# --- End Forward Kinematics Helper ---
+
 
 def to_planar(arr: np.ndarray, shape: tuple) -> np.ndarray:
     return cv2.resize(arr, shape).transpose(2,0,1).flatten()
@@ -120,8 +172,23 @@ def get_left_observation():
         obs.append(to_radians(servoBrick3.get_position(SERVO_IDX_MIDDLE_L_PROXIMAL)))
         obs.append(to_radians(servoBrick3.get_position(SERVO_IDX_RING_L_PROXIMAL)))
         obs.append(to_radians(servoBrick3.get_position(SERVO_IDX_PINKY_L_PROXIMAL)))
+
+        # Calculate forward kinematics from observed joint angles
+        ee_pose_obs = calculate_forward_kinematics(obs)
+        if ee_pose_obs:
+            obs.extend(ee_pose_obs) # Append [x, y, z, roll, pitch, yaw]
+        else:
+            # Handle FK failure - append default values or raise error
+            obs.extend([0.0] * 6) # Append zeros if FK failed
+
     except Exception as e: # Catch specific exceptions if possible
         print(f"Observation error occurred: {e}")
+        # Ensure obs has the correct length even if an error occurred before FK
+        while len(obs) < (robot.n if robot else 8): # Append zeros for missing joints
+             obs.append(0.0)
+        if len(obs) == (robot.n if robot else 8): # Only append pose if joint angles were retrieved
+             obs.extend([0.0] * 6) # Append default pose on error
+
     return obs
 
 def get_left_action():
@@ -140,8 +207,23 @@ def get_left_action():
         acts.append(to_radians(left_target["middle"]))            # Corresponds to SERVO_IDX_MIDDLE_L_PROXIMAL
         acts.append(to_radians(left_target["ring"]))              # Corresponds to SERVO_IDX_RING_L_PROXIMAL
         acts.append(to_radians(left_target["pinky"]))             # Corresponds to SERVO_IDX_PINKY_L_PROXIMAL
+
+        # Calculate forward kinematics from target joint angles
+        ee_pose_acts = calculate_forward_kinematics(acts)
+        if ee_pose_acts:
+            acts.extend(ee_pose_acts) # Append [x, y, z, roll, pitch, yaw]
+        else:
+            # Handle FK failure - append default values or raise error
+            acts.extend([0.0] * 6) # Append zeros if FK failed
+
     except Exception as e: # Catch specific exceptions if possible
         print(f"Acts exception occurred: {e}")
+        # Ensure acts has the correct length even if an error occurred before FK
+        while len(acts) < (robot.n if robot else 8): # Append zeros for missing joints
+             acts.append(0.0)
+        if len(acts) == (robot.n if robot else 8): # Only append pose if joint angles were retrieved
+             acts.extend([0.0] * 6) # Append default pose on error
+
 
     return acts
 
@@ -228,12 +310,16 @@ def record_trajectory():
             print("acts are None")
             continue
 
+        # obs already contains joint angles + end effector pose [j1..jN, x,y,z,r,p,y]
         cube_height = get_green_cube_height()
-        obs_text=str(obs)
-        acts_text=str(acts)
-        obs.append(cube_height)
-        if len(obs_text) > 0 and len(acts_text) > 0:
-            trajectory["obs"].append(obs)
+        obs_with_cube = obs + [cube_height] # Append cube height at the very end
+
+        obs_text=str(obs_with_cube) # Check length based on final structure
+        acts_text=str(acts) # acts already contains joint targets + end effector pose target
+
+        # Ensure lists are not empty before appending
+        if obs and acts:
+            trajectory["obs"].append(obs_with_cube)
             trajectory["acts"].append(acts)
         else:
             print("length of obs or acts 0")
