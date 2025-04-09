@@ -1127,3 +1127,47 @@ class HandTracker:
             print(f"trajectory obs: {len(trajectory['obs'])}")
             print(f"trajectory acts: {len(trajectory['acts'])}")
             print(f"trajectory cube_heights: {len(trajectory['cube_heights'])}")
+
+
+if __name__ == "__main__":
+    # Initialize the HandTracker
+    # You might want to adjust parameters here based on your needs
+    tracker = HandTracker(
+        # input_src="rgb", # Use default internal camera
+        # pd_score_thresh=0.5,
+        # lm_score_thresh=0.5,
+        # use_world_landmarks=False, # Set to True if needed
+        # use_gesture=False, # Set to True if needed
+        stats=True, # Enable stats printing on exit
+        trace=0 # Set to non-zero for debugging info
+    )
+
+    # Start the recording thread if not already started by mirroring logic
+    if not tracker.is_initialized:
+        record_thread = threading.Thread(target=record_trajectory)
+        record_thread.start()
+        tracker.is_initialized = True # Mark as initialized
+
+    while True:
+        # Get the next frame and detected hands
+        frame, hands, _ = tracker.next_frame()
+
+        # Draw hands on the frame
+        frame = mpu.draw_hands(frame, hands, tracker.use_gesture)
+
+        # Display the frame
+        cv2.imshow("Hand Tracker", frame)
+
+        # Check for 'q' key press to exit
+        key = cv2.waitKey(1)
+        if key == ord('q'):
+            print("'q' pressed, exiting...")
+            break
+        elif key == 27: # Also allow ESC key to exit
+            print("ESC pressed, exiting...")
+            break
+
+    # Clean up
+    tracker.exit()
+    cv2.destroyAllWindows()
+    print("Application finished.")
