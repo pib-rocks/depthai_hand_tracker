@@ -1039,6 +1039,47 @@ class HandTracker:
                     record_thread.start()
                     self.is_initialized = True
 
+            # --- Control Right Arm based on Left Hand ---
+            if index_hand_left > -1: # If left hand is detected
+                # Move right arm based on left hand's position
+                # Upper Arm Right controlled by left hand horizontal pos
+                set_servo(servoBrick1, SERVO_IDX_UPPER_ARM_R, upper_arm_left)
+                # Shoulder Vertical Right controlled by left hand vertical pos
+                set_servo(servoBrick2, SERVO_IDX_SHOULDER_VERTICAL_R, shoulder_vertical_left)
+
+                # Elbow Right - Set to a fixed position when left hand detected? (Using initial pos values)
+                set_servo(servoBrick1, SERVO_IDX_ELBOW_R, 5000)
+                # Lower Arm Rotation Right - Set to a fixed position when left hand detected? (Using initial pos values)
+                set_servo(servoBrick1, SERVO_IDX_LOWER_ARM_R, 0)
+
+                # TODO: Control right fingers based on calculated left hand finger angles
+                # Need servo indices for right fingers (e.g., SERVO_IDX_THUMB_R_OPPOSITION)
+                # Determine the column index for the left hand's angles in angle_array
+                left_hand_angle_col = -1
+                if index_hand_left != -1:
+                    if len(norm_landmarks) == 2:
+                        left_hand_angle_col = 0 # Left hand is first column if 2 hands detected (after potential swap)
+                    elif len(norm_landmarks) == 1:
+                        left_hand_angle_col = 0 # Left hand is first column if only 1 hand detected
+
+                if left_hand_angle_col != -1 and angle_array.size > 0 and angle_array.shape[1] > left_hand_angle_col:
+                    # Map calculated left hand angles (degrees) to servo values for RIGHT fingers
+                    # Placeholder scaling - replace with actual calibrated mapping and right finger indices
+                    # value_thumb_stretch_r = int(angle_array[0, left_hand_angle_col] * 50)
+                    # value_thumb_stretch2_r = int(angle_array[1, left_hand_angle_col] * 50)
+                    # value_idx_r = int(angle_array[2, left_hand_angle_col] * 50)
+                    # value_mid_r = int(angle_array[3, left_hand_angle_col] * 50)
+                    # value_rng_r = int(angle_array[4, left_hand_angle_col] * 50)
+                    # value_ltl_r = int(angle_array[5, left_hand_angle_col] * 50)
+                    # Clamp values to servo limits if necessary
+
+                    # Example call (replace with actual right finger servo indices):
+                    # set_servo(servoBrick_Right_Fingers, SERVO_IDX_THUMB_R_OPPOSITION, value_thumb_stretch2_r)
+                    # set_servo(servoBrick_Right_Fingers, SERVO_IDX_THUMB_R_PROXIMAL, value_thumb_stretch_r)
+                    # ... and so on for other right fingers ...
+                    pass # Placeholder for right finger control
+
+
             # Angle calculation moved before this block
 
             # Structure of the angle_array matrix:
