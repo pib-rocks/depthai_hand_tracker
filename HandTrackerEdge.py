@@ -18,7 +18,7 @@ from tinkerforge.brick_hat import BrickHAT
 from tinkerforge.bricklet_servo_v2 import BrickletServoV2
 from tinkerforge.bricklet_solid_state_relay_v2 import BrickletSolidStateRelayV2
 from datetime import datetime
-from tinkerforge.bricklet_base import Bricklet
+# from tinkerforge.bricklet_base import Bricklet # Removed unused import
 import roboticstoolbox as rtb
 import pib_DH # Assuming pib_DH.py is in the same directory or path
 
