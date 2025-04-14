@@ -167,12 +167,11 @@ def to_radians(servo_value):
     return (servo_value / 100) * (math.pi / 180.0)
     
 def get_left_observation():
-    # Observation vector structure:
-    # [shoulder_v, upper_a, thumb_opp, thumb_prox, index, middle, ring, pinky,
-    #  ee_x, ee_y, ee_z, ee_roll, ee_pitch, ee_yaw]
-    # Total 8 + 6 = 14 elements (excluding cube height added later)
-    obs = [0.0] * 8 # Initialize with zeros for the 8 standard observations (Shoulder V, Upper A, 6 Fingers)
-    q_fk_obs = [0.0] * 6 # Initialize FK joints with zeros (Shoulder H, Shoulder V, Upper A, Elbow, Lower A, Wrist)
+    """Gets the current observation vector for the left arm, including cube height.
+    Returns: list [shoulder_v, upper_a, 6 fingers, ee_x, y, z, roll, pitch, yaw, cube_height] (15 elements, radians/meters)
+    """
+    obs = [0.0] * 8      # [Shoulder V, Upper A, 6 Fingers]
+    q_fk_obs = [0.0] * 6 # [Shoulder H, Shoulder V, Upper A, Elbow, Lower A, Wrist=0] for FK
 
     try:
         # --- Read Servo Positions ---
@@ -209,9 +208,13 @@ def get_left_observation():
         ee_pose_obs = [0.0] * 6
 
     # Append pose to the observation vector
-    obs.extend(ee_pose_obs) # Append [x, y, z, roll, pitch, yaw]
+    obs.extend(ee_pose_obs) # obs now has 14 elements
 
-    return obs # Return the 14-element list
+    # Append cube height
+    cube_height = get_green_cube_height() # Use the helper function
+    obs.append(cube_height) # obs now has 15 elements
+
+    return obs # Return the 15-element list
 
 def get_left_action():
     # Action vector structure:
@@ -344,11 +347,10 @@ def detect_colors(frame):
     return center if center is not None else (-1,-1)
 
 trajectory = {
-    "obs": [],          # List of observations (each obs is [8 joints, 6 pose] = 14 elements)
-    "acts": [],         # List of actions (each act is [8 target joints, 6 target pose] = 14 elements)
-    "cube_heights": [], # List of cube heights corresponding to each observation step
-    "infos": None,
-    "terminal": True
+    "obs": [],          # List of observations [15 elements: 8 joints, 6 pose, 1 cube_height]
+    "acts": [],         # List of actions [14 elements: 8 target joints, 6 target pose]
+    "infos": None,      # Placeholder for additional info
+    "terminal": True    # Placeholder for terminal state
 }
 
 recording = True
@@ -362,19 +364,17 @@ def record_trajectory():
             time.sleep(0.01) # Add a small sleep if acts are None
             continue
 
-        # obs should be a list of 14 elements: [8 joints, 6 pose]
+        # obs (15 elements) now includes cube_height from get_left_observation()
         # acts should be a list of 14 elements: [8 target joints, 6 target pose]
-        cube_height = get_green_cube_height()
 
-        # Check if obs and acts are valid lists of expected length (14 elements each)
-        if isinstance(obs, list) and len(obs) == 14 and isinstance(acts, list) and len(acts) == 14:
-            # Append the 14-element observation and action vectors
+        # Check if obs (15) and acts (14) are valid lists of expected length
+        if isinstance(obs, list) and len(obs) == 15 and isinstance(acts, list) and len(acts) == 14:
+            # Append the observation (including cube height) and action vectors
             trajectory["obs"].append(obs)
             trajectory["acts"].append(acts)
-            # Append the corresponding cube height separately
-            trajectory["cube_heights"].append(cube_height)
+            # No need to append cube_height separately
         else:
-            print(f"Skipping recording: Invalid obs (len={len(obs) if isinstance(obs, list) else 'N/A'}) or acts (len={len(acts) if isinstance(acts, list) else 'N/A'})")
+            print(f"Skipping recording: Invalid obs (len={len(obs) if isinstance(obs, list) else 'N/A'}, expected 15) or acts (len={len(acts) if isinstance(acts, list) else 'N/A'}, expected 14)")
 
         time.sleep(0.050)  # 50 ms interval
 
@@ -1179,7 +1179,7 @@ class HandTracker:
 
             print(f"trajectory obs: {len(trajectory['obs'])}")
             print(f"trajectory acts: {len(trajectory['acts'])}")
-            print(f"trajectory cube_heights: {len(trajectory['cube_heights'])}")
+            # Removed cube_heights printout
 
 
 if __name__ == "__main__":
