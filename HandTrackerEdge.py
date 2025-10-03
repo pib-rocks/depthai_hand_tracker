@@ -1,6 +1,7 @@
 import numpy as np
 from collections import namedtuple
-
+from pib_sdk.control import *
+from pib_sdk.kinematics import *
 from numpy.lib.arraysetops import isin
 import mediapipe_utils as mpu
 import depthai as dai
@@ -13,10 +14,12 @@ from string import Template
 import marshal
 import math
 
-from tinkerforge.ip_connection import IPConnection
-from tinkerforge.brick_hat import BrickHAT
-from tinkerforge.bricklet_servo_v2 import BrickletServoV2
-
+#Start control client to send all data to ROS2 topics
+w = Write(debug=False)
+#Set all motors to default settings, except hands with faster velocity
+w.set(All, default=True, velocity=25000)
+w.set(right_arm, default=True, velocity=10000)
+w.set(left_arm, default=True, velocity=10000)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PALM_DETECTION_MODEL = str(SCRIPT_DIR / "models/palm_detection_sh4.blob")
@@ -26,18 +29,6 @@ LANDMARK_MODEL_SPARSE = str(SCRIPT_DIR / "models/hand_landmark_sparse_sh4.blob")
 DETECTION_POSTPROCESSING_MODEL = str(SCRIPT_DIR / "custom_models/PDPostProcessing_top2_sh1.blob")
 TEMPLATE_MANAGER_SCRIPT_SOLO = str(SCRIPT_DIR / "template_manager_script_solo.py")
 TEMPLATE_MANAGER_SCRIPT_DUO = str(SCRIPT_DIR / "template_manager_script_duo.py")
-
-HOST = "localhost"
-PORT = 4223
-UIDservo1 = '29q6'
-UIDservo2 = '29pF'
-UIDservo3 = '29G8'
-
-ipcon = IPConnection()
-ipcon.connect(HOST, PORT)
-servoBrick1 = BrickletServoV2(UIDservo1, ipcon)
-servoBrick2 = BrickletServoV2(UIDservo2, ipcon)
-servoBrick3 = BrickletServoV2(UIDservo3, ipcon)
 
 
 def to_planar(arr: np.ndarray, shape: tuple) -> np.ndarray:
@@ -503,54 +494,18 @@ class HandTracker:
         
         index_hand_right = -1
         index_hand_left  = -1
-        shoulder_horizontal_left = 0
-        shoulder_horizontal_right = 0
         
         
         if len(res.get("lm_score",[])) == 0:
-            #Shoulder vertical left
-            servoBrick2.set_pulse_width(9,700,2500)
-            servoBrick2.set_position(9, 9000)
-            servoBrick2.set_motion_configuration(9, 9000, 9000, 9000)
-            servoBrick2.set_enable(9, True)
-            #Shoulder vertical right
-            servoBrick2.set_pulse_width(1,700,2500)
-            servoBrick2.set_position(1, -9000)
-            servoBrick2.set_motion_configuration(1, 9000, 9000, 9000)
-            servoBrick2.set_enable(1, True)
-            # Ellbow left
-            servoBrick3.set_position(8, 4500)
-            servoBrick3.set_motion_configuration(8, 9000, 9000, 9000)
-            servoBrick3.set_enable(8, True)
-            # Ellbow right
-            servoBrick1.set_position(8, 5000)
-            servoBrick1.set_motion_configuration(8, 9000, 9000, 9000)
-            servoBrick1.set_enable(8, True)
-            # Lower arm rotation left
-            servoBrick3.set_position(7, 0)
-            servoBrick3.set_motion_configuration(7, 9000, 9000, 9000)
-            servoBrick3.set_enable(7, True)
-            # Lower arm rotation right
-            servoBrick1.set_position(7, 0)
-            servoBrick1.set_motion_configuration(7, 9000, 9000, 9000)
-            servoBrick1.set_enable(7, True)
-            #Shoulder horizontal - upper arm rotation left
-            servoBrick3.set_pulse_width(9,700,2500)
-            servoBrick3.set_position(9, shoulder_horizontal_left)
-            servoBrick3.set_motion_configuration(9, 9000, 9000, 9000)
-            servoBrick3.set_enable(9, True)
-            #Shoulder horizontal - upper arm rotation right
-            servoBrick1.set_pulse_width(9,700,2500)
-            servoBrick1.set_position(9, shoulder_horizontal_left)
-            servoBrick1.set_motion_configuration(9, 9000, 9000, 9000)
-            servoBrick1.set_enable(9, True)
+            #If no hands detected, all motors go to a resting position
+            w.move(All, resting_position)
 
         for i in range(len(res.get("lm_score",[]))):
             hand = self.extract_hand_data(res, i)
             if hand.label=="left":
                 index_hand_left = i
                 shoulder_horizontal_left = hand.landmarks[0][0] * 13 - 10000
-                shoulder_vertical_left = 5000 - hand.landmarks[0][1] * 13 - 2000
+                shoulder_vertical_left = 5000 - hand.landmarks[0][1] * 13 - 4000
             if hand.label=="right":
                 index_hand_right = i
                 shoulder_horizontal_right = hand.landmarks[0][0] * 13 - 4000
@@ -618,116 +573,38 @@ class HandTracker:
                 angle_ltl.append(math.acos(np.dot(vec_ltl_high[i], vec_ltl_low[i])/(np.linalg.norm(vec_ltl_low[i])*np.linalg.norm(vec_ltl_high[i]))))
 
             
-
             
 
             if index_hand_left>-1:
-            	#Shoulder horizontal - upper arm rotation
-                servoBrick1.set_pulse_width(9,700,2500)
-                servoBrick1.set_position(9, shoulder_horizontal_left)
-                servoBrick1.set_motion_configuration(9, 9000, 9000, 9000)
-                servoBrick1.set_enable(9, True)
-                # Shoulder vertical
-                servoBrick2.set_pulse_width(1,700,2500)
-                servoBrick2.set_position(1, shoulder_vertical_left)
-                servoBrick2.set_motion_configuration(1, 9000, 9000, 9000)
-                servoBrick2.set_enable(1, True)
+                #Hand calculations
+                value_thumb_stretch = 50*angle_thumb[index_hand_left] - 90
+                value_thumb_opposition = 50*angle_thumb2[index_hand_left] - 90
+                value_idx = 50*angle_idx[index_hand_left] - 90
+                value_mid = 50*angle_mid[index_hand_left] - 90
+                value_rng = 50*angle_rng[index_hand_left] - 90
+                value_ltl = 50*angle_ltl[index_hand_left] - 90
+                
+                #Shoulder horizontal - upper arm rotation and move some joints for better visibility
+                w.move(right_arm, shoulder_vertical_left, 10, shoulder_horizontal_left, -50, -70, 50)
+                #Add to library right hand and left hand
+                #right hand values
+                w.move(right_hand, value_thumb_opposition, value_thumb_stretch, value_idx, value_mid, value_rng, value_ltl)
 
-		        #Thumb strech angle_thumb
-                value_thumb_stretch = angle_thumb[index_hand_left]*5000 - 9000
-                servoBrick1.set_pulse_width(1, 700, 2500)
-                servoBrick1.set_position(1, -value_thumb_stretch)
-                servoBrick1.set_enable(1, True)
-            	#Thumb opposition angle_thumb2
-                value_thumb_stretch2 = angle_thumb2[index_hand_left]*5000 - 9000
-                servoBrick1.set_pulse_width(0, 700, 2500)
-                servoBrick1.set_position(0, -value_thumb_stretch2)
-                servoBrick1.set_enable(0, True)
-            	#Index finger angle_idx
-                value_idx = angle_idx[index_hand_left]*5000 - 6000
-                servoBrick1.set_pulse_width(2, 700, 2500)
-                servoBrick1.set_position(2, -value_idx)
-                servoBrick1.set_enable(2, True)
-            	#Middle finger angle_mid
-                value_mid = angle_mid[index_hand_left]*5000 - 9000
-                servoBrick1.set_pulse_width(3, 700, 2500)
-                servoBrick1.set_position(3, value_mid)
-                servoBrick1.set_enable(3, True)
-                #Ring finger angle_rng
-                value_rng = angle_rng[index_hand_left]*5000 - 9000
-                servoBrick1.set_pulse_width(4, 700, 2500)
-                servoBrick1.set_position(4, value_rng)
-                servoBrick1.set_enable(4, True)
-            	#Small finger angle_ltl
-                value_ltl = angle_ltl[index_hand_left]*5000 - 9000
-                servoBrick1.set_pulse_width(5, 700, 2500)
-                servoBrick1.set_position(5, -value_ltl)
-                servoBrick1.set_enable(5, True)     
-                # Ellbow right
-                servoBrick1.set_position(8, -6000)
-                servoBrick1.set_pulse_width(8,700,2500)
-                servoBrick1.set_motion_configuration(8, 9000, 9000, 9000)
-                servoBrick1.set_enable(8, True)
-                # Lower arm rotation right
-                servoBrick1.set_position(7, -7500)
-                servoBrick1.set_pulse_width(7,700,2500)
-                servoBrick1.set_motion_configuration(7, 9000, 9000, 9000)
-                servoBrick1.set_enable(7, True)       
-            
             if index_hand_right>-1:
-                #Upper arm rotation
-                servoBrick3.set_pulse_width(9,700,2500)
-                servoBrick3.set_position(9, shoulder_horizontal_right)
-                servoBrick3.set_motion_configuration(9, 9000, 9000, 9000)
-                servoBrick3.set_enable(9, True)
-                #Shoulder vertical
-                value_shoulder_vertical = hand.landmarks[0][1] * 10 - 5000
-                servoBrick2.set_pulse_width(9,700,2500)
-                servoBrick2.set_position(9, shoulder_vertical_right)
-                servoBrick2.set_motion_configuration(9, 9000, 9000, 9000)
-                servoBrick2.set_enable(9, True)
-				#Thumb stretch angle_thumb
-                value_thumb_stretch = angle_thumb[index_hand_right]*5000 - 9000
-                servoBrick3.set_pulse_width(1,700,2500)
-                servoBrick3.set_position(1, -value_thumb_stretch)
-                servoBrick3.set_enable(1, True)
-				#Thumb opposition angle_thumb2
-                value_thumb_stretch2 = angle_thumb2[index_hand_right]*5000 - 6000
-                servoBrick3.set_pulse_width(0,700,2500)
-                servoBrick3.set_position(0, -value_thumb_stretch2)
-                servoBrick3.set_enable(0,True)
-                #Index finger angle_idx
-                value_idx = angle_idx[index_hand_right]*5000 - 9000
-                servoBrick3.set_pulse_width(2, 700, 2500)
-                servoBrick3.set_position(2, -value_idx)
-                servoBrick3.set_enable(2, True)
-				#Middle finger angle_mid
-                value_mid = angle_mid[index_hand_right]*5000 - 9000
-                servoBrick3.set_pulse_width(3, 700, 2500)
-                servoBrick3.set_position(3, value_mid)
-                servoBrick3.set_enable(3, True)
-				#Ring finger angle_rng
-                value_rng = angle_rng[index_hand_right]*5000 - 6000
-                servoBrick3.set_pulse_width(4, 700, 2500)
-                servoBrick3.set_position(4, value_rng)
-                servoBrick3.set_enable(4, True)
-				#Small finger angle_ltl
-                value_ltl = angle_ltl[index_hand_right]*5000 - 6000
-                servoBrick3.set_pulse_width(5, 700, 2500)
-                servoBrick3.set_position(5, -value_ltl)
-                servoBrick3.set_enable(5, True)
-                # Ellbow left
-                servoBrick3.set_position(8, -5000)
-                servoBrick3.set_pulse_width(8,700,2500)
-                servoBrick3.set_motion_configuration(8, 9000, 9000, 9000)
-                servoBrick3.set_enable(8, True)     
-                # Lower arm rotation left
-                servoBrick3.set_position(7, 7000)
-                servoBrick3.set_pulse_width(7,700,2500)
-                servoBrick3.set_motion_configuration(7, 9000, 9000, 9000)
-                servoBrick3.set_enable(7, True)
-
-            
+                #Hand calculations
+                value_thumb_stretch = 50*angle_thumb[index_hand_right] - 90
+                value_thumb_opposition = 50*angle_thumb2[index_hand_right] - 90
+                value_idx = 50*angle_idx[index_hand_right] - 90
+                value_mid = 50*angle_mid[index_hand_right] - 90
+                value_rng = 50*angle_rng[index_hand_right] - 90
+                value_ltl = 50*angle_ltl[index_hand_right] - 90
+                
+                #Shoulder horizontal - upper arm rotation and move some joints for better visibility
+                w.move(left_arm, shoulder_vertical_right, 10, shoulder_horizontal_right, -50, -70, 50)
+                #Add to library right hand and left hand
+                #right hand values
+                w.move(left_hand, value_thumb_opposition, value_thumb_stretch, value_idx, value_mid, value_rng, value_ltl)
+                
             
             #Sammeln der Winkeldaten in einzelnem Array: angle_array[0,:] - thumb, angle_array[1,:] - index usw.
             angle_array.append(angle_thumb)
@@ -737,17 +614,23 @@ class HandTracker:
             angle_array.append(angle_rng)
             angle_array.append(angle_ltl)
             angle_array = np.array(angle_array)
-
-            #Aufbau der Matrix angle_array: 
-                #[Daumen SchlieÃŸwinkel links][Daumen SchlieÃŸwinkel rechts]
-                #[Daumenwinkel Handebene links][Daumenwinkel Handebene rechts]
-                #[Zeigefingerwinkel links][Zeigefingerwinkel rechts]
-                #[Mittelfingerwinkel links][Mittelfingerwinkel rechts]
-                #[Ringfingerwinkel links][Ringfingerwinkel rechts]
-                #[Kleiner Fingerwinkel links][Kleiner Fingerwinkel rechts]
-                    #2 HÃ¤nde im Bild: Werte fÃ¼r linke hand in nullter Dimension eines Winkelvektors (self.angle_array_final[:,0]);Werte fÃ¼r rechte Hand in erster Dimension
-                    #Eindimensional wenn nur eine Hand im Bild
-                    #3 dimensional wenn 3 HÃ¤nde im Bild aber nicht getestet
+            '''
+            Structure of angle_array:
+            Each row corresponds to a finger angle, with left-hand and right-hand values:
+            ┌─────────────────────────────┬─────────────────────────────┐
+            │           Left Hand         │           Right Hand        │
+            ├─────────────────────────────┼─────────────────────────────┤
+            │ Thumb closing angle         │ Thumb closing angle         │
+            │ Thumb angle in hand plane   │ Thumb angle in hand plane   │
+            │ Index finger angle          │ Index finger angle          │
+            │ Middle finger angle         │ Middle finger angle         │
+            │ Ring finger angle           │ Ring finger angle           │
+            │ Little finger angle         │ Little finger angle         │
+            └─────────────────────────────┴─────────────────────────────┘
+            Dimensions:
+            - 2 hands in the image → left-hand values are in dimension 0 (self.angle_array_final[:,0]), right-hand values are in dimension 1.
+            - 1 hand in the image  → array is 1-dimensional.
+            '''
 
             for i in range(0, len(angle_array)):  #Umrechnung von rad in grad
                 for j in range(0, len(angle_array[i])):
@@ -787,7 +670,6 @@ class HandTracker:
 
     def exit(self):
         self.device.close()
-        ipcon.disconnect()
         # Print some stats
         if self.stats:
             nb_frames = self.fps.nb_frames()
