@@ -15,11 +15,24 @@ import marshal
 import math
 
 #Start control client to send all data to ROS2 topics
-w = Write(debug=False)
+w = Write()
 #Set all motors to default settings, except hands with faster velocity
-w.set(All, default=True, velocity=25000)
-w.set(right_arm, default=True, velocity=10000)
-w.set(left_arm, default=True, velocity=10000)
+w.set(right_hand, left_hand, default, velocity=30000)
+w.set(right_arm, left_arm, default, velocity=10000)
+
+def safe_angle(u: np.ndarray, v: np.ndarray, default: float = 0.0) -> float:
+    #Return angle between vectors u and v in radians, safely. to prevent shutdown
+    nu = np.linalg.norm(u)
+    nv = np.linalg.norm(v)
+    if nu == 0.0 or nv == 0.0:
+        return default
+    cosx = float(np.dot(u, v) / (nu * nv))
+    # Clamp to valid domain for acos
+    if cosx > 1.0:
+        cosx = 1.0
+    elif cosx < -1.0:
+        cosx = -1.0
+    return math.acos(cosx)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PALM_DETECTION_MODEL = str(SCRIPT_DIR / "models/palm_detection_sh4.blob")
@@ -36,61 +49,45 @@ def to_planar(arr: np.ndarray, shape: tuple) -> np.ndarray:
 
 
 class HandTracker:
-    """
-    Mediapipe Hand Tracker for depthai
+    '''
+    Mediapipe Hand Tracker for DepthAI
+
     Arguments:
-    - input_src: frame source, 
-                    - "rgb" or None: OAK* internal color camera,
-                    - "rgb_laconic": same as "rgb" but without sending the frames to the host (Edge mode only),
-                    - a file path of an image or a video,
-                    - an integer (eg 0) for a webcam id,
-                    In edge mode, only "rgb" and "rgb_laconic" are possible
-    - pd_model: palm detection model blob file,
-    - pd_score: confidence score to determine whether a detection is reliable (a float between 0 and 1).
-    - pd_nms_thresh: NMS threshold.
-    - use_lm: boolean. When True, run landmark model. Otherwise, only palm detection model is run
-    - lm_model: landmark model. Either:
-                    - 'full' for LANDMARK_MODEL_FULL,
-                    - 'lite' for LANDMARK_MODEL_LITE,
-                    - 'sparse' for LANDMARK_MODEL_SPARSE,
-                    - a path of a blob file.  
-    - lm_score_thresh : confidence score to determine whether landmarks prediction is reliable (a float between 0 and 1).
-    - use_world_landmarks: boolean. The landmarks model yields 2 types of 3D coordinates : 
-                    - coordinates expressed in pixels in the image, always stored in hand.landmarks,
-                    - coordinates expressed in meters in the world, stored in hand.world_landmarks 
-                    only if use_world_landmarks is True.
-    - pp_model: path to the detection post processing model,
-    - solo: boolean, when True detect one hand max (much faster since we run the pose detection model only if no hand was detected in the previous frame)
-                    On edge mode, always True
-    - xyz : boolean, when True calculate the (x, y, z) coords of the detected palms.
-    - crop : boolean which indicates if square cropping on source images is applied or not
-    - internal_fps : when using the internal color camera as input source, set its FPS to this value (calling setFps()).
-    - resolution : sensor resolution "full" (1920x1080) or "ultra" (3840x2160),
-    - internal_frame_height : when using the internal color camera, set the frame height (calling setIspScale()).
-                    The width is calculated accordingly to height and depends on value of 'crop'
-    - use_gesture : boolean, when True, recognize hand poses froma predefined set of poses
-                    (ONE, TWO, THREE, FOUR, FIVE, OK, PEACE, FIST)
-    - use_handedness_average : boolean, when True the handedness is the average of the last collected handednesses.
-                    This brings robustness since the inferred robustness is not reliable on ambiguous hand poses.
-                    When False, handedness is the last inferred handedness.
-    - single_hand_tolerance_thresh (Duo mode only) : In Duo mode, if there is only one hand in a frame, 
-                    in order to know when a second hand will appear you need to run the palm detection 
-                    in the following frames. Because palm detection is slow, you may want to delay 
-                    the next time you will run it. 'single_hand_tolerance_thresh' is the number of 
-                    frames during only one hand is detected before palm detection is run again.   
-    - lm_nb_threads : 1 or 2 (default=2), number of inference threads for the landmark model
-    - use_same_image (Edge Duo mode only) : boolean, when True, use the same image when inferring the landmarks of the 2 hands
-                    (setReusePreviousImage(True) in the ImageManip node before the landmark model). 
-                    When True, the FPS is significantly higher but the skeleton may appear shifted on one of the 2 hands.
-    - stats : boolean, when True, display some statistics when exiting.   
-    - trace : int, 0 = no trace, otherwise print some debug messages or show output of ImageManip nodes
-            if trace & 1, print application level info like number of palm detections,
-            if trace & 2, print lower level info like when a message is sent or received by the manager script node,
-            if trace & 4, show in cv2 windows outputs of ImageManip node,
-            if trace & 8, save in file tmp_code.py the python code of the manager script node
-            Ex: if trace==3, both application and low level info are displayed.
-                      
-    """
+    - input_src: Frame source
+        - "rgb" / None ? OAK camera
+        - "rgb_laconic" ? OAK camera without host frames (Edge only)
+        - file path ? image/video
+        - int ? webcam ID
+        (Edge mode supports only "rgb" and "rgb_laconic")
+    - pd_model: Palm detection model file
+    - pd_score: Palm detection confidence (0?1)
+    - pd_nms_thresh: Non-max suppression threshold
+    - use_lm: Run landmark model if True
+    - lm_model: Landmark model ("full", "lite", "sparse", or path)
+    - lm_score_thresh: Landmark confidence (0?1)
+    - use_world_landmarks: Also output 3D world coords if True
+    - pp_model: Post-processing model file
+    - solo: Detect max one hand (faster, required in Edge mode)
+    - xyz: Compute (x,y,z) palm coords if True
+    - crop: Apply square cropping on input images
+    - internal_fps: FPS for internal camera
+    - resolution: "full" (1920x1080) or "ultra" (3840x2160)
+    - internal_frame_height: ISP scale height (width auto-set)
+    - use_gesture: Recognize simple poses (ONE, TWO, OK, FIST, etc.)
+    - use_handedness_average: Smooth handedness over frames
+    - single_hand_tolerance_thresh: (#frames before re-running palm detection
+                                    in Duo mode when only one hand visible)
+    - lm_nb_threads: Inference threads for landmark model (1 or 2)
+    - use_same_image: (Duo only) reuse same image for both hands ? faster but less accurate
+    - stats: Print performance stats on exit
+    - trace: Debug output level (bitmask)
+             1 = app info
+             2 = low-level
+             4 = show cv2 windows
+             8 = save manager code
+             (combine values, e.g. 3 = 1+2)
+    '''
+
     def __init__(self, input_src=None,
                 pd_model=PALM_DETECTION_MODEL, 
                 pd_score_thresh=0.5, pd_nms_thresh=0.3,
@@ -308,9 +305,6 @@ class HandTracker:
             stereo.setLeftRightCheck(True)
             stereo.setDepthAlign(dai.CameraBoardSocket.RGB)
             stereo.setSubpixel(False)  # subpixel True brings latency
-            # MEDIAN_OFF necessary in depthai 2.7.2. 
-            # Otherwise : [critical] Fatal error. Please report to developers. Log: 'StereoSipp' '533'
-            # stereo.setMedianFilter(dai.StereoDepthProperties.MedianFilter.MEDIAN_OFF)
 
             spatial_location_calculator = pipeline.createSpatialLocationCalculator()
             spatial_location_calculator.setWaitForConfigInput(True)
@@ -494,160 +488,93 @@ class HandTracker:
         
         index_hand_right = -1
         index_hand_left  = -1
-        
+        horizontal_right = 0
+        horizontal_left = 0
+        vertical_right = 0
+        vertical_left = 0
         
         if len(res.get("lm_score",[])) == 0:
-            #If no hands detected, all motors go to a resting position
-            w.move(All, resting_position)
+            w.move(All, zero_position)
 
         for i in range(len(res.get("lm_score",[]))):
             hand = self.extract_hand_data(res, i)
             if hand.label=="left":
+                # variable inverted due to mirroring
                 index_hand_left = i
-                shoulder_horizontal_left = hand.landmarks[0][0] * 13 - 10000
-                shoulder_vertical_left = 5000 - hand.landmarks[0][1] * 13 - 4000
+                horizontal_right = hand.landmarks[0][0] * 0.1 - 100 #offseted more than left due to opposite direction
+                vertical_right = hand.landmarks[0][1] * 0.1 - 35
             if hand.label=="right":
                 index_hand_right = i
-                shoulder_horizontal_right = hand.landmarks[0][0] * 13 - 4000
-                shoulder_vertical_right = hand.landmarks[0][1] * 13 - 4000
+                horizontal_left = hand.landmarks[0][0] * 0.1 - 35
+                vertical_left = hand.landmarks[0][1] * 0.1 - 35
             hands.append(hand)
-            
-            norm_landmarks.append(hand.norm_landmarks)      #ziehe normierte landmark koordinaten aus hand; in Schleife appenden um Anzahl der HÃ¤nde zu berÃ¼cksichtigen
+            # extract normalized landmark coordinates from hand; append in loop to account for number of hands
+            norm_landmarks.append(hand.norm_landmarks)      
             orientation = hand.handedness
        
-
         angle_array = []
-        if norm_landmarks:          #nur rechnen wenn Handkoordinaten verfÃ¼gbar
-            #initialisiere Matritzen fÃ¼r Winkel
-            vec_thumb_low = []
-            vec_thumb_high = []
-            vec_thumb_low2 = []
-            vec_thumb_high2 = []
-            angle_thumb = []
+        # only compute if hand landmarks are available
+        if norm_landmarks:          
+            # Angle containers (radians)
+            angle_thumb  = []
             angle_thumb2 = []
-            vec_idx_low = []
-            vec_idx_high = []
-            angle_idx = []
-            vec_mid_low = []
-            vec_mid_high = []
-            angle_mid = []
-            vec_rng_low = []
-            vec_rng_high = []
-            angle_rng = []
-            vec_ltl_low = []
-            vec_ltl_high = []
-            angle_ltl = []
-            
-            #berÃ¼cksichtige Anzahl der HÃ¤nde; Nummerierung der Landmarks stimmt mit Zeichnung aus Github Ã¼berein; erste Dimension der Matrix norm_landmarks ist index der Hand (0 wenn keine Hand, 1 wenn eine Hand, 2 wenn 2 HÃ¤nde, ...)
-            for i in range(0,len(norm_landmarks)):      
-                #Daumen SchlieÃŸwinkel
-                vec_thumb_low.append(norm_landmarks[i][1][:] - norm_landmarks[i][2][:]) #Berechne oberen Vektor
-                vec_thumb_high.append(norm_landmarks[i][4][:] - norm_landmarks[i][3][:])#Berechne unteren Vektor
-                angle_thumb.append(math.acos(np.dot(vec_thumb_high[i], vec_thumb_low[i])/(np.linalg.norm(vec_thumb_low[i])*np.linalg.norm(vec_thumb_high[i])))) #Berechne Winkel in rad
-                #Daumenwinkel in Handebene
-                vec_thumb_low2.append(norm_landmarks[i][3][:] - norm_landmarks[i][2][:])
-                vec_thumb_high2.append(norm_landmarks[i][9][:] - norm_landmarks[i][0][:])
-                angle_thumb2.append(math.acos(np.dot(vec_thumb_high2[i], vec_thumb_low2[i])/(np.linalg.norm(vec_thumb_low2[i])*np.linalg.norm(vec_thumb_high2[i]))))
+            angle_idx    = []
+            angle_mid    = []
+            angle_rng    = []
+            angle_ltl    = []
 
-                #Zeigefinger                
-                vec_idx_low.append(norm_landmarks[i][5][:] - norm_landmarks[i][6][:])
-                vec_idx_high.append(norm_landmarks[i][8][:] - norm_landmarks[i][7][:])
-                angle_idx.append(math.acos(np.dot(vec_idx_high[i], vec_idx_low[i])/(np.linalg.norm(vec_idx_low[i])*np.linalg.norm(vec_idx_high[i]))))
+            # Consider number of hands; landmark indices follow the Mediapipe drawing
+            for i in range(len(norm_landmarks)):
+                lm = norm_landmarks[i]
+                angle_thumb.append(safe_angle(lm[4] - lm[3], lm[1] - lm[2]))
+                angle_thumb2.append(safe_angle(lm[9] - lm[0], lm[3] - lm[2]))
+                angle_idx.append(safe_angle(lm[8] - lm[7], lm[5] - lm[6]))
+                angle_mid.append(safe_angle(lm[12] - lm[11], lm[9] - lm[10]))
+                angle_rng.append(safe_angle(lm[16] - lm[15], lm[13] - lm[14]))
+                angle_ltl.append(safe_angle(lm[20] - lm[19], lm[17] - lm[18]))
 
+            if index_hand_left > -1:
+                value_thumb_stretch    = 50 * angle_thumb[index_hand_left]  - 90
+                value_thumb_opposition = 50 * angle_thumb2[index_hand_left] - 90
+                value_idx              = 50 * angle_idx[index_hand_left]    - 90
+                value_mid              = 50 * angle_mid[index_hand_left]    - 90
+                value_rng              = 50 * angle_rng[index_hand_left]    - 90
+                value_ltl              = 50 * angle_ltl[index_hand_left]    - 90
 
-                #Mittelfinger                
-                vec_mid_low.append(norm_landmarks[i][9][:] - norm_landmarks[i][10][:])
-                vec_mid_high.append(norm_landmarks[i][12][:] - norm_landmarks[i][11][:])
-                angle_mid.append(math.acos(np.dot(vec_mid_high[i], vec_mid_low[i])/(np.linalg.norm(vec_mid_low[i])*np.linalg.norm(vec_mid_high[i]))))
-
-
-                #Ringfinger                
-                vec_rng_low.append(norm_landmarks[i][13][:] - norm_landmarks[i][14][:])
-                vec_rng_high.append(norm_landmarks[i][16][:] - norm_landmarks[i][15][:])
-                angle_rng.append(math.acos(np.dot(vec_rng_high[i], vec_rng_low[i])/(np.linalg.norm(vec_rng_low[i])*np.linalg.norm(vec_rng_high[i]))))
-
-
-                #Kleiner Finger                
-                vec_ltl_low.append(norm_landmarks[i][17][:] - norm_landmarks[i][18][:])
-                vec_ltl_high.append(norm_landmarks[i][20][:] - norm_landmarks[i][19][:])
-                angle_ltl.append(math.acos(np.dot(vec_ltl_high[i], vec_ltl_low[i])/(np.linalg.norm(vec_ltl_low[i])*np.linalg.norm(vec_ltl_high[i]))))
-
-            
-            
-
-            if index_hand_left>-1:
-                #Hand calculations
-                value_thumb_stretch = 50*angle_thumb[index_hand_left] - 90
-                value_thumb_opposition = 50*angle_thumb2[index_hand_left] - 90
-                value_idx = 50*angle_idx[index_hand_left] - 90
-                value_mid = 50*angle_mid[index_hand_left] - 90
-                value_rng = 50*angle_rng[index_hand_left] - 90
-                value_ltl = 50*angle_ltl[index_hand_left] - 90
+                # Shoulder horizontal / upper arm rotation and visibility pose
+                w.move(right_arm, vertical_right, 10, horizontal_right, -50, -70, 50,
+                right_hand, value_thumb_opposition, value_thumb_stretch, value_idx, value_mid, value_rng, value_ltl)
                 
-                #Shoulder horizontal - upper arm rotation and move some joints for better visibility
-                w.move(right_arm, shoulder_vertical_left, 10, shoulder_horizontal_left, -50, -70, 50)
-                #Add to library right hand and left hand
-                #right hand values
-                w.move(right_hand, value_thumb_opposition, value_thumb_stretch, value_idx, value_mid, value_rng, value_ltl)
+            if index_hand_right > -1:
+                # Hand calculations (keep radians here to preserve original control logic)
+                value_thumb_stretch    = 50 * angle_thumb[index_hand_right]  - 90
+                value_thumb_opposition = 50 * angle_thumb2[index_hand_right] - 90
+                value_idx              = 50 * angle_idx[index_hand_right]    - 90
+                value_mid              = 50 * angle_mid[index_hand_right]    - 90
+                value_rng              = 50 * angle_rng[index_hand_right]    - 90
+                value_ltl              = 50 * angle_ltl[index_hand_right]    - 90
 
-            if index_hand_right>-1:
-                #Hand calculations
-                value_thumb_stretch = 50*angle_thumb[index_hand_right] - 90
-                value_thumb_opposition = 50*angle_thumb2[index_hand_right] - 90
-                value_idx = 50*angle_idx[index_hand_right] - 90
-                value_mid = 50*angle_mid[index_hand_right] - 90
-                value_rng = 50*angle_rng[index_hand_right] - 90
-                value_ltl = 50*angle_ltl[index_hand_right] - 90
+                # Shoulder horizontal / upper arm rotation and visibility pose and left hand values
+                w.move(left_arm, vertical_left, 10, horizontal_left, -50, -70, 50, 
+                left_hand, value_thumb_opposition, value_thumb_stretch, value_idx, value_mid, value_rng, value_ltl)
                 
-                #Shoulder horizontal - upper arm rotation and move some joints for better visibility
-                w.move(left_arm, shoulder_vertical_right, 10, shoulder_horizontal_right, -50, -70, 50)
-                #Add to library right hand and left hand
-                #right hand values
-                w.move(left_hand, value_thumb_opposition, value_thumb_stretch, value_idx, value_mid, value_rng, value_ltl)
-                
-            
-            #Sammeln der Winkeldaten in einzelnem Array: angle_array[0,:] - thumb, angle_array[1,:] - index usw.
-            angle_array.append(angle_thumb)
-            angle_array.append(angle_thumb2)
-            angle_array.append(angle_idx)
-            angle_array.append(angle_mid)
-            angle_array.append(angle_rng)
-            angle_array.append(angle_ltl)
-            angle_array = np.array(angle_array)
-            '''
-            Structure of angle_array:
-            Each row corresponds to a finger angle, with left-hand and right-hand values:
-            ┌─────────────────────────────┬─────────────────────────────┐
-            │           Left Hand         │           Right Hand        │
-            ├─────────────────────────────┼─────────────────────────────┤
-            │ Thumb closing angle         │ Thumb closing angle         │
-            │ Thumb angle in hand plane   │ Thumb angle in hand plane   │
-            │ Index finger angle          │ Index finger angle          │
-            │ Middle finger angle         │ Middle finger angle         │
-            │ Ring finger angle           │ Ring finger angle           │
-            │ Little finger angle         │ Little finger angle         │
-            └─────────────────────────────┴─────────────────────────────┘
-            Dimensions:
-            - 2 hands in the image → left-hand values are in dimension 0 (self.angle_array_final[:,0]), right-hand values are in dimension 1.
-            - 1 hand in the image  → array is 1-dimensional.
-            '''
+            # Collect angle data into a single array
+            angle_array = np.array([angle_thumb, angle_thumb2, angle_idx, angle_mid, angle_rng, angle_ltl], dtype=object)
 
-            for i in range(0, len(angle_array)):  #Umrechnung von rad in grad
-                for j in range(0, len(angle_array[i])):
-                    angle_array[i][j] = angle_array[i][j] * (180/math.pi)
 
-            
-            #print('Platzhalter', angle_array.ndim) #Print fÃ¼r Debugging
+            # Convert radians ? degrees for exported angle_array_final
+            for i in range(len(angle_array)):
+                for j in range(len(angle_array[i])):
+                    angle_array[i][j] = angle_array[i][j] * (180 / math.pi)
 
-        #Speichere Array als Attribut von Tracker
-        self.angle_array_final = angle_array  
+        # Save array as an attribute of tracker
+        self.angle_array_final = angle_array
 
-        #Wenn Orientation kleiner/gleich 0.5 ist werden Positionen fÃ¼r linke und rechte Hand in matrix vertauscht, das wird im folgenden umgekehrt, funktioniert nur im Fall fÃ¼r 2 HÃ¤nde
-        if len(norm_landmarks) == 2:      
+        # If handedness orientation ? 0.5, swap left/right columns (only when two hands detected)
+        if len(norm_landmarks) == 2:
             if orientation < 0.5:
-                self.angle_array_final[:,0] = angle_array[:,1]
-                self.angle_array_final[:,1] = angle_array[:,0]
-        
+                self.angle_array_final[:, 0] = angle_array[:, 1]
+                self.angle_array_final[:, 1] = angle_array[:, 0]
                 
 
 
