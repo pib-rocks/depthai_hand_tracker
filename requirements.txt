@@ -1,2 +1,4 @@
-opencv-python >= 4.5.1.48
-depthai>=2.13
+opencv-python==4.11.0.86
+depthai==2.30
+numpy==1.26.4
+pib-sdk>0.2
