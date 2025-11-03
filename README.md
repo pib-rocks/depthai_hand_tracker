@@ -1,9 +1,14 @@
-# Hand tracking with DepthAI
-
+# Hand tracking with DepthAI and writing joint angles with pib sdk
 Running Google Mediapipe Hand Tracking models on [Luxonis DepthAI](https://docs.luxonis.com/projects/hardware/en/latest/) hardware (OAK-D, OAK-D lite, OAK-1,...)
 
 <p align="center"><img src="img/hand_tracker.gif" alt="Demo" /></p>
 
+## Installation
+requires-python>=3.9,<3.12
+python 3.14 is automatically installed in new raspberry pi OS, you can either run the imitation in virtual environment or install a compatible python version like 3.9 alongside the default one and install the sdk with ``` pip3.9 ``` . Instructions are at in pib-sdk repo.
+```
+pip install -r requirements.txt
+```
 
 - [Hand tracking with DepthAI](#hand-tracking-with-depthai)
   - [What's new ?](#whats-new-)
