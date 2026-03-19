@@ -1,0 +1,120 @@
+# Configuration file for Hand Tracker with Servo Control
+# This file contains all settings for servo control and calibration
+
+# Tinkerforge connection settings
+tinkerforge:
+  host: "localhost"
+  port: 4223
+  servo_bricks:
+    - uid: "29q6"  # Servo Brick 1 (right hand)
+    - uid: "29pF"  # Servo Brick 2 (shoulder)
+    - uid: "29G8"  # Servo Brick 3 (left hand)
+
+# Servo configuration
+servo:
+  # Default pulse width settings (min, max in microseconds)
+  pulse_width:
+    min: 700
+    max: 2500
+  
+  # Default motion configuration (velocity, acceleration, deceleration)
+  motion_config:
+    velocity: 9000
+    acceleration: 9000
+    deceleration: 9000
+
+# Calibration values for hand position to servo position conversion
+calibration:
+  # Multipliers for hand landmark coordinates to servo positions
+  shoulder:
+    horizontal:
+      left:
+        multiplier: 13
+        offset: -10000
+      right:
+        multiplier: 13
+        offset: -4000
+    vertical:
+      left:
+        multiplier: 13
+        offset_x: 0  # x-coordinate is not used
+        offset_y: -2000
+        base: 5000
+      right:
+        multiplier: 13
+        offset: -4000
+  
+  # Angle to servo position conversion
+  finger_angles:
+    thumb_stretch:
+      multiplier: 5000
+      offset: -9000
+    thumb_opposition:
+      multiplier: 5000
+      offset_left: -9000
+      offset_right: -6000
+    index:
+      multiplier: 5000
+      offset_left: -6000
+      offset_right: -9000
+    middle:
+      multiplier: 5000
+      offset: -9000
+    ring:
+      multiplier: 5000
+      offset_left: -9000
+      offset_right: -6000
+    little:
+      multiplier: 5000
+      offset_left: -9000
+      offset_right: -6000
+
+# Default positions when no hand is detected
+default_positions:
+  no_hand:
+    shoulder_vertical:
+      left: 9000
+      right: -9000
+    elbow:
+      left: 4500
+      right: 5000
+    lower_arm_rotation:
+      left: 0
+      right: 0
+    shoulder_horizontal:
+      left: 0
+      right: 0
+    # Right arm elbow and lower arm rotation when left hand is detected
+    right_arm_when_left_detected:
+      elbow: -6000
+      lower_arm_rotation: -7500
+    # Left arm elbow and lower arm rotation when right hand is detected
+    left_arm_when_right_detected:
+      elbow: -5000
+      lower_arm_rotation: 7000
+
+# Servo channel assignment
+servo_channels:
+  left_hand:
+    thumb_stretch: 1
+    thumb_opposition: 0
+    index: 2
+    middle: 3
+    ring: 4
+    little: 5
+    elbow: 8
+    lower_arm_rotation: 7
+    shoulder_horizontal: 9
+  right_hand:
+    thumb_stretch: 1
+    thumb_opposition: 0
+    index: 2
+    middle: 3
+    ring: 4
+    little: 5
+    elbow: 8
+    lower_arm_rotation: 7
+    shoulder_horizontal: 9
+  shoulder:
+    vertical_left: 1
+    vertical_right: 9
